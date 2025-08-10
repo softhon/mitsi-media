@@ -39,6 +39,7 @@
     "typescript-eslint": "^8.38.0"
   },
   "dependencies": {
+    "dotenv": "^17.2.1",
     "helmet": "^8.1.0",
     "mediasoup": "^3.18.0",
     "redis": "^5.8.0",
