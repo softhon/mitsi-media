@@ -25,6 +25,7 @@ export default tseslint.config(
       'prettier/prettier': 'error',
       '@typescript-eslint/no-unused-vars': ['error'],
       '@typescript-eslint/explicit-module-boundary-types': 'off',
+      '@typescript-eslint/explicit-function-return-type': 'error',
     },
     languageOptions: {
       globals: globals.node,
