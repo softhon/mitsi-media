@@ -11,6 +11,7 @@ export default tseslint.config(
       'node_modules/**',
       'dist/**',
       'jest.config.js',
+      'src/protos/**/*.ts',
     ],
   },
   // TypeScript configuration for source files (type-aware linting)
