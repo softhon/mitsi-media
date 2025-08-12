@@ -12,7 +12,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "fix": "npm run format && npm run lint -- --fix"
+    "fix": "npm run format && npm run lint -- --fix",
+    "proto:gen": "./proto-gen.sh"
   },
   "keywords": [],
   "author": "",
@@ -41,6 +42,8 @@
     "typescript-eslint": "^8.38.0"
   },
   "dependencies": {
+    "@grpc/grpc-js": "^1.13.4",
+    "@grpc/proto-loader": "^0.8.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
