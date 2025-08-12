@@ -12,7 +12,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "fix": "npm run format && npm run lint -- --fix"
+    "fix": "npm run format && npm run lint -- --fix",
+    "proto:gen": "./proto-gen.sh"
   },
   "keywords": [],
   "author": "",
