@@ -6,7 +6,7 @@ export type AckCallback<T = { [key: string]: unknown }> = (res: {
   error?: Error | unknown | null;
   response?: T;
 }) => void;
-export type PeerType = 'Recorder' | 'Attendee';
+export type PeerType = 'Recorder' | 'Participant';
 
 export enum Role {
   Moderator = 'Moderator',
