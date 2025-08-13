@@ -16,7 +16,7 @@ const config = {
     cert: process.env.HTTPS_CERT || certPath,
     key: process.env.HTTPS_KEY || keyPath,
   },
-  port: process.env.PORT || 8000,
+  port: process.env.PORT || 4000,
   apiServerUrl: process.env.API_SERVER_URL,
   apiServerApiKey: process.env.API_SERVER_API_KEY,
   recordingServerUrl: process.env.RECORDING_SERVER_URL,

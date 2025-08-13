@@ -2,6 +2,7 @@ import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import path from 'path';
 import { ProtoGrpcType } from '../protos/media-signaling';
+import { MediaSignalingHandlers } from '../protos/media_signaling_package/MediaSignaling';
 
 class GrpcServer {
   private static instance: GrpcServer | null = null;
@@ -22,17 +23,17 @@ class GrpcServer {
     return GrpcServer.instance;
   }
 
-  async start(port: number = 50051): Promise<void> {
+  async start(port: number = 50052): Promise<void> {
     try {
       this.server.bindAsync(
         `0.0.0.0:${port}`,
         grpc.ServerCredentials.createInsecure(),
-        () => {
-          // if (error) {
-          //   console.log(error);
-          //   throw error;
-          // }
-          this.server.start();
+        (err, port) => {
+          if (err) {
+            console.error(err);
+            return;
+          }
+          console.log(`Your server as started on port ${port}`);
         }
       );
     } catch (error) {
@@ -56,19 +57,20 @@ class GrpcServer {
       protoDescriptor.media_signaling_package.MediaSignaling;
 
     this.server.addService(mediaSignaling.service, {
-      HealthCheck: this.healthCheck.bind(this),
-    });
-  }
+      SendMessage: call => {
+        call.on('data', chunk => {
+          console.log('Message from client');
+          console.log(chunk);
+        });
 
-  // Health check implementation
-  private healthCheck(
-    call: grpc.ServerUnaryCall<unknown, unknown>,
-    callback: grpc.sendUnaryData<unknown>
-  ): void {
-    console.log('call', call.request);
-    callback(null, {
-      status: 1, // SERVING
-    });
+        call.write({
+          type: 'confirm connection',
+          args: {
+            status: 'success',
+          },
+        });
+      },
+    } as MediaSignalingHandlers);
   }
 }
 
