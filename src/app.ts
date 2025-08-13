@@ -7,6 +7,7 @@ import { createServer } from 'https';
 import config from './config';
 import { Routes } from './routes';
 import { redisServer } from './servers/redis-server';
+import { grpcServer } from './servers/grpc-server';
 
 const serverOption = {
   key: fs.readFileSync(config.tls.key, 'utf8'),
@@ -27,6 +28,7 @@ const httpsServer = createServer(serverOption, app);
     httpsServer.listen(config.port, () => {
       console.log(`Server running on port ${config.port}`);
     });
+    await grpcServer.start();
   } catch (error) {
     console.error('Initialization error:', error);
     process.exit(1);

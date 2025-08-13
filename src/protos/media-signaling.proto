@@ -1,25 +1,16 @@
 syntax = "proto3";
-
 package media_signaling_package;
 
-// Service definition for bidirectional communication
 service MediaSignaling {
- // Health check
- rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+ rpc SendMessage(stream SendMessageRequest) returns (stream SendMessageResponse) {};
+}
+message SendMessageRequest {
+  string type = 1;
+  map<string, string> args = 2;
 }
 
-
-// Health check messages
-message HealthCheckRequest {
-  string service = 1;
+message SendMessageResponse {
+  string type = 1;
+  map<string, string> args = 2;
 }
 
-message HealthCheckResponse {
-  enum ServingStatus {
-    UNKNOWN = 0;
-    SERVING = 1;
-    NOT_SERVING = 2;
-    SERVICE_UNKNOWN = 3;
-  }
-  ServingStatus status = 1;
-}
