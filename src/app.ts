@@ -1,4 +1,3 @@
-import fs from 'fs';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -9,18 +8,13 @@ import { Routes } from './routes';
 import { redisServer } from './servers/redis-server';
 import { grpcServer } from './servers/grpc-server';
 
-const serverOption = {
-  key: fs.readFileSync(config.tls.key, 'utf8'),
-  cert: fs.readFileSync(config.tls.cert, 'utf8'),
-};
-
 const app = express();
 app.use(cors(config.cors));
 app.use(helmet());
 app.use(express.json());
 app.use('/', Routes);
 
-const httpsServer = createServer(serverOption, app);
+const httpsServer = createServer(config.httpsServerOptions, app);
 
 (async (): Promise<void> => {
   try {
