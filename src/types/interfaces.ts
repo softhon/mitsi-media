@@ -1,3 +1,5 @@
+import { types as mediasoupTypes } from 'mediasoup';
+
 export type ProducerSource = 'mic' | 'camera' | 'screen' | 'screenAudio';
 
 export type TransportKind = 'producer' | 'consumer';
@@ -128,3 +130,28 @@ export interface Reaction {
   position: `${number}%`;
   timestamp: number;
 }
+
+export interface PipeConsumerParams {
+  producerId: string;
+  kind: mediasoupTypes.MediaKind;
+  producerPaused: boolean;
+  rtpParameters: mediasoupTypes.RtpParameters;
+  sendTranportId: string;
+  roomId: string;
+  recvMediaNodeId: string;
+  sendMediaNodeId: string;
+  producerPeerId: string;
+  appData: mediasoupTypes.AppData;
+}
+
+export interface TransportConnectionParams {
+  routerId: string;
+  transportId: string;
+  sendTransportId?: string;
+  recvTransportId?: string;
+  ip: string;
+  port: number;
+  srtpParameters?: mediasoupTypes.SrtpParameters;
+}
+
+// WorkerData, RouterData, TransportData, ConsumerData, Producer
