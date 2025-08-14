@@ -13,6 +13,9 @@ const certFile =
 const keyFile =
   process.env.HTTPS_KEY || path.join(__dirname, '..', 'certs', 'privkey.pem');
 
+const LISTEN_IP = process.env.LISTEN_IP || '0.0.0.0';
+const ANNOUNCED_ADDRESS = process.env.ANNOUNCED_ADDRESS || '127.0.0.1';
+
 const config = {
   env: process.env.NODE_ENV,
   cors: {
@@ -52,6 +55,20 @@ const config = {
         'svc',
         'sctp',
       ] as Array<mediasoupTypes.WorkerLogTag>,
+    },
+    webRtcServer: {
+      listenInfos: [
+        {
+          protocol: 'udp',
+          ip: LISTEN_IP,
+          announcedAddress: ANNOUNCED_ADDRESS,
+        },
+        {
+          protocol: 'tcp',
+          ip: LISTEN_IP,
+          announcedAddress: ANNOUNCED_ADDRESS,
+        },
+      ] as Array<mediasoupTypes.TransportListenInfo>,
     },
     routerMediaCodecs: [
       {
@@ -106,6 +123,12 @@ const config = {
       //     }
       // }
     ] as Array<mediasoupTypes.RtpCodecCapability>,
+
+    transportListenInfo: {
+      protocol: 'udp',
+      ip: LISTEN_IP,
+      announcedAddress: ANNOUNCED_ADDRESS,
+    } as mediasoupTypes.TransportListenInfo,
   },
 };
 
