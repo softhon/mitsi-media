@@ -34,6 +34,7 @@ class MediasoupServer {
 
       for (let i = 0; i < config.cpus; i++) {
         const worker = await createWorker(config.mediasoup.workerSettings);
+        worker.createWebRtcServer(config.mediasoup.webRtcServer);
         worker.once('died', () => {
           console.error('Worker died', { workerId: worker.pid });
           setTimeout(() => process.exit(1), 2000);
@@ -74,6 +75,10 @@ class MediasoupServer {
     }
   }
 
+  getWorkers(): mediasoupTypes.Worker[] {
+    return Array.from(this.workers.values());
+  }
+
   getLeastLoadedWorker(): mediasoupTypes.Worker | undefined {
     const sortedWorkerLoads = new Map(
       [...this.workerLoads.entries()].sort((a, b) => a[1] - b[1])
@@ -110,19 +115,23 @@ class MediasoupServer {
       worker.appData.consumers = new Map();
       worker.appData.dataProducers = new Map();
       worker.appData.dataConsumers = new Map();
+      worker.appData.webRtcServer = null;
       worker.appData.load = 0;
 
       worker.observer.on('close', () => {
         console.info('Worker closed');
       });
-
+      worker.observer.on('newwebrtcserver', webRtcServer => {
+        console.log('newwebrtcserver created');
+        worker.appData.webRtcServer = webRtcServer;
+      });
       worker.observer.on('newrouter', router => {
         router.appData.transports = new Map();
         router.appData.producers = new Map();
         router.appData.consumers = new Map();
         router.appData.dataProducers = new Map();
         router.appData.dataConsumers = new Map();
-
+        router.appData.webRtcServer = worker.appData.webRtcServer;
         router.appData.worker = worker;
         (worker.appData.routers as Map<string, mediasoupTypes.Router>).set(
           router.id,
