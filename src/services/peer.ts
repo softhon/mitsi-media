@@ -1,6 +1,6 @@
 import EventEmitter from 'events';
 import { types as mediasoupTypes } from 'mediasoup';
-import { PeerType, ProducerSource } from '../types/interfaces';
+import { PeerType, ProducerSource } from '../types';
 import { mediaSoupServer } from '../servers/mediasoup-server';
 
 class Peer extends EventEmitter {
