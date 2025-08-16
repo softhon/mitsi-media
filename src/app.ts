@@ -7,6 +7,8 @@ import config from './config';
 import { Routes } from './routes';
 import { redisServer } from './servers/redis-server';
 import { grpcServer } from './servers/grpc-server';
+import { MediaNodeData } from './types';
+import { getRedisKey, registerMediaNode } from './lib/utils';
 
 const app = express();
 app.use(cors(config.cors));
@@ -16,12 +18,16 @@ app.use('/', Routes);
 
 const httpsServer = createServer(config.httpsServerOptions, app);
 
+let medianodeData: MediaNodeData;
+
 (async (): Promise<void> => {
   try {
     await redisServer.connect();
     httpsServer.listen(config.port, () => {
       console.log(`Server running on port ${config.port}`);
     });
+    medianodeData = await registerMediaNode();
+    console.log('Register medianode');
     await grpcServer.start();
   } catch (error) {
     console.error('Initialization error:', error);
@@ -31,6 +37,12 @@ const httpsServer = createServer(config.httpsServerOptions, app);
 
 const shutdown = async (): Promise<void> => {
   try {
+    await redisServer.sRem(
+      getRedisKey['medianodesRunning'](),
+      JSON.stringify(medianodeData)
+    );
+    console.log('Delete medianode');
+
     await redisServer.disconnect();
     httpsServer.close();
     console.log('Application shut down gracefully');
