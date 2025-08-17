@@ -17,7 +17,7 @@ const LISTEN_IP = process.env.LISTEN_IP || '0.0.0.0';
 const ANNOUNCED_ADDRESS = process.env.ANNOUNCED_ADDRESS || '127.0.0.1';
 
 const config = {
-  serverId: crypto.randomUUID(),
+  nodeId: `mnode-${crypto.randomUUID()}`,
   env: process.env.NODE_ENV,
   cors: {
     origin: process.env.NODE_ENV === 'production' ? ['https://mitsi.app'] : '*',
