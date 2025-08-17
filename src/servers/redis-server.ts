@@ -1,7 +1,7 @@
 import { createClient, RedisClientType, SetOptions } from 'redis';
 
 import config from '../config';
-import { PubSubEvents } from '../types/events';
+import { PubSubActions } from '../types/actions';
 
 class RedisServer {
   private static instance: RedisServer | null = null;
@@ -40,12 +40,12 @@ class RedisServer {
   private async subscribe(): Promise<void> {
     if (!this.isConnected)
       throw new Error('Redis clients are not connected. Call connect() first');
-    await this.subClient.subscribe(PubSubEvents.Message, message => {
+    await this.subClient.subscribe(PubSubActions.Message, message => {
       const {
         event,
         args,
       }: {
-        event: PubSubEvents;
+        event: PubSubActions;
         args: { [key: string]: unknown };
       } = JSON.parse(message);
 
@@ -61,14 +61,14 @@ class RedisServer {
     event,
     args,
   }: {
-    event: PubSubEvents;
+    event: PubSubActions;
     args: { [key: string]: unknown };
   }): Promise<void> {
     if (!this.isConnected)
       throw new Error('Redis clients are not connected. Call connect() first');
 
     const message = JSON.stringify({ event, args });
-    await this.pubClient.publish(PubSubEvents.Message, message);
+    await this.pubClient.publish(PubSubActions.Message, message);
     console.info(`Message published to channe ${message}`);
   }
 
