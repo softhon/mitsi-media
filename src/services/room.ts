@@ -5,7 +5,7 @@ import config from '../config';
 import { mediaSoupServer } from '../servers/mediasoup-server';
 import { redisServer } from '../servers/redis-server';
 import { getKey } from '../lib/utils';
-import { ServiceEvents } from '../types/events';
+import { ServiceActions } from '../types/actions';
 import { PipeConsumerParams } from '../types';
 import MediaNode from './medianode';
 
@@ -317,7 +317,7 @@ class Room extends EventEmitter {
   };
 
   private handlePeerEvents(peer: Peer): void {
-    peer.on(ServiceEvents.Close, () => {
+    peer.on(ServiceActions.Close, () => {
       if (!this.getPeer(peer.id)) return;
       this.removePeer(peer.id);
     });
@@ -414,7 +414,7 @@ class Room extends EventEmitter {
 
   addMediaNode(mediaNode: MediaNode): void {
     this.mediaNodes.set(mediaNode.id, mediaNode);
-    mediaNode.on(ServiceEvents.Close, () => {
+    mediaNode.on(ServiceActions.Close, () => {
       this.mediaNodes.delete(mediaNode.id);
     });
   }
