@@ -22,8 +22,9 @@ export const registerMediaNode = async (): Promise<MediaNodeData> => {
     const ip = await publicIpv4();
     const medianodeData: MediaNodeData = {
       id: ip || config.serverId,
-      ip,
+      ip: '0.0.0.0',
       address: `${config.port}`,
+      grpcPort: `${config.grpcPort}`,
     };
     await redisServer.sAdd(
       getRedisKey['medianodesRunning'](),

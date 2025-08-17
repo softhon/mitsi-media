@@ -1,16 +1,21 @@
 syntax = "proto3";
-package media_signaling_package;
+package mediaSignalingPackage;
 
+// Service definition for bidirectional communication
 service MediaSignaling {
+ // Send Message
  rpc SendMessage(stream SendMessageRequest) returns (stream SendMessageResponse) {};
 }
+
+
+// Health check messages
 message SendMessageRequest {
   string type = 1;
-  map<string, string> args = 2;
+  string args = 2;
 }
 
 message SendMessageResponse {
   string type = 1;
-  map<string, string> args = 2;
+  string args = 2;
 }
 

@@ -3,10 +3,10 @@
 
 export interface SendMessageRequest {
   'type'?: (string);
-  'args'?: ({[key: string]: string});
+  'args'?: (string);
 }
 
 export interface SendMessageRequest__Output {
   'type'?: (string);
-  'args'?: ({[key: string]: string});
+  'args'?: (string);
 }

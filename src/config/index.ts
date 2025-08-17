@@ -28,6 +28,7 @@ const config = {
     cert: fs.readFileSync(certFile, 'utf8'),
   },
   port: process.env.PORT || 4000,
+  grpcPort: process.env.GRPC_PORT || 50052,
   cpus: Object.keys(os.cpus()).length,
 
   apiServerUrl: process.env.API_SERVER_URL,

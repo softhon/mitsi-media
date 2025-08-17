@@ -120,6 +120,7 @@ export interface MediaNodeData {
   id: string;
   ip: string;
   address: string;
+  grpcPort: string;
 }
 
 export interface Reaction {
