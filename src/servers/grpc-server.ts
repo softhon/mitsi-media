@@ -127,7 +127,7 @@ class GrpcServer extends EventEmitter {
   private handleMessage(
     call: grpc.ServerDuplexStream<MessageRequest, MessageResponse>
   ): void {
-    const clientId = this.extractClientId(call.metadata);
+    const clientId = call.metadata.get('clientid')[0].toString();
 
     new SignalNode({ id: clientId, call });
 
@@ -163,13 +163,6 @@ class GrpcServer extends EventEmitter {
         resolve();
       });
     });
-  }
-
-  private extractClientId(metadata: grpc.Metadata): string {
-    const clientId = metadata.get('clientId')?.[0];
-    return typeof clientId === 'string'
-      ? clientId
-      : `snode-${crypto.randomUUID()}`;
   }
 
   private async closeAllConnections(): Promise<void> {

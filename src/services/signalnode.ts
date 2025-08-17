@@ -14,7 +14,7 @@ class SignalNode extends EventEmitter {
   isActive: boolean;
   heartbeatInterval?: NodeJS.Timeout;
 
-  static signalNodes: Map<string, SignalNode>;
+  static signalNodes = new Map<string, SignalNode>();
 
   constructor({
     id,
