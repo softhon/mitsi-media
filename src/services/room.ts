@@ -6,7 +6,6 @@ import { mediaSoupServer } from '../servers/mediasoup-server';
 import { redisServer } from '../servers/redis-server';
 import { getRedisKey } from '../lib/utils';
 import { ServiceActions } from '../types/actions';
-import { PipeConsumerParams } from '../types';
 import MediaNode from './medianode';
 
 class Room extends EventEmitter {
@@ -27,18 +26,15 @@ class Room extends EventEmitter {
   // workers: Map<number, mediasoupTypes.Worker>;
   routers: Map<string, mediasoupTypes.Router>;
   audioLevelObservers: Map<string, mediasoupTypes.AudioLevelObserver>;
-  routerRtpCapabilities: mediasoupTypes.RtpCapabilities;
   // all meets in the server
   private static rooms = new Map<string, Room>();
 
   constructor({
     roomId,
-    // workers,
     routers,
     audioLevelObservers,
   }: {
     roomId: string;
-    // workers: Map<number, mediasoupTypes.Worker>,
     routers: Map<string, mediasoupTypes.Router>;
     audioLevelObservers: Map<string, mediasoupTypes.AudioLevelObserver>;
   }) {
@@ -46,16 +42,11 @@ class Room extends EventEmitter {
     this.roomId = roomId;
 
     this.peers = new Map();
-    // todo: checking if i should close medianode when meeting closes
     this.mediaNodes = new Map();
 
     this.closed = false;
     this.routers = routers;
-    // this.workers = workers;
     this.audioLevelObservers = audioLevelObservers;
-    this.routerRtpCapabilities = Array.from(
-      routers.values()
-    )[0].rtpCapabilities;
     this.activeSpeaker = {
       peerId: null,
       timestamp: 0,
@@ -169,6 +160,10 @@ class Room extends EventEmitter {
 
   getRouters(): mediasoupTypes.Router[] {
     return Array.from(this.routers.values());
+  }
+
+  getRouterRtpCapabilities(): mediasoupTypes.RtpCapabilities {
+    return Array.from(this.routers.values())[0].rtpCapabilities;
   }
 
   async assignRouterToPeer(): Promise<mediasoupTypes.Router | null> {
@@ -369,44 +364,8 @@ class Room extends EventEmitter {
     consumingMediaNode: MediaNode;
   }): Promise<void> {
     try {
-      const router = this.getLeastLoadedRouter();
-      const sendTranport = consumingMediaNode.getSendPipeTransport(router.id);
-      const pipeConsumer = await sendTranport.consume({
-        producerId: producer.id,
-      });
-      consumingMediaNode.addConsumer(pipeConsumer);
-
-      const params: PipeConsumerParams = {
-        producerId: producer.id,
-        kind: pipeConsumer.kind,
-        producerPaused: pipeConsumer.producerPaused,
-        rtpParameters: pipeConsumer.rtpParameters,
-        sendTranportId: sendTranport.id,
-        recvMediaNodeId: consumingMediaNode.id,
-        sendMediaNodeId: 'config.env.mediaNodeId',
-        roomId: this.roomId,
-        producerPeerId,
-        appData: producer.appData,
-      };
-      /**
-       * todo
-       * channel tras
-      const signal = SignalNode.getASignalNode();
-      signal.sendMessage(SIGNALLING_EVENTS.newPipeConsumer, params);
-
-      pipeConsumer.observer.on('close', () => {
-        signal.sendMessage(SIGNALLING_EVENTS.closePipeConsumer, params);
-      });
-
-      pipeConsumer.on('producerpause', () => {
-        signal.sendMessage(SIGNALLING_EVENTS.pausePipeConsumer, params);
-      });
-
-      pipeConsumer.on('producerresume', () => {
-        signal.sendMessage(SIGNALLING_EVENTS.resumePipeConsumer, params);
-      });
-      console.log('createPipeConsumer');
-       */
+      // const router = this.getLeastLoadedRouter();
+      console.log(producer, producerPeerId, consumingMediaNode);
     } catch (error) {
       console.error(`Pipe Consumer failed ${error}`);
     }
