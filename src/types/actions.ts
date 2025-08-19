@@ -18,7 +18,37 @@ export enum ServiceActions {
 }
 
 export enum MediaSignalingActions {
+  // Connection lifecycle
   Connected = 'connected',
+  Disconnect = 'disconnect',
+  Reconnect = 'reconnect',
+
+  // Health monitoring
   Heartbeat = 'heartbeat',
-  ServerShutdown = 'server-shutdown',
+  HeartbeatAck = 'heartbeat_ack',
+  Ping = 'ping',
+  Pong = 'pong',
+
+  // Server management
+  ServerShutdown = 'server_shutdown',
+  ServerRestart = 'server_restart',
+
+  // Error handling
+  Error = 'error',
+  ConnectionError = 'connection_error',
+
+  // Media specific actions (add your custom actions here)
+  MediaOffer = 'media_offer',
+  MediaAnswer = 'media_answer',
+  IceCandidate = 'ice_candidate',
+  MediaStreamStart = 'media_stream_start',
+  MediaStreamStop = 'media_stream_stop',
+
+  // Room/channel management
+  JoinRoom = 'join_room',
+  LeaveRoom = 'leave_room',
+  RoomUpdate = 'room_update',
+
+  // Custom actions placeholder
+  Custom = 'custom',
 }
