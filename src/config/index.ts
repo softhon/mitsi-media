@@ -17,7 +17,7 @@ const LISTEN_IP = process.env.LISTEN_IP || '0.0.0.0';
 const ANNOUNCED_ADDRESS = process.env.ANNOUNCED_ADDRESS || '127.0.0.1';
 
 const config = {
-  nodeId: `mnode-${crypto.randomUUID()}`,
+  nodeId: `mnode-1`,
   env: process.env.NODE_ENV,
   cors: {
     origin: process.env.NODE_ENV === 'production' ? ['https://mitsi.app'] : '*',
@@ -37,6 +37,7 @@ const config = {
   redisServerUrl: process.env.REDIS_SERVER_URL || 'redis://localhost:6379',
 
   mediasoup: {
+    maxWorkerLoad: parseInt(process.env.MAX_WORKER_LOAD || '100'),
     workerSettings: {
       dtlsCertificateFile: certFile,
       dtlsPrivateKeyFile: keyFile,

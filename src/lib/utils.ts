@@ -18,10 +18,10 @@ export const getRedisKey = {
 
 export const registerMediaNode = async (): Promise<MediaNodeData> => {
   try {
-    const { publicIpv4 } = await import('public-ip');
-    const ip = await publicIpv4();
+    // const { publicIpv4 } = await import('public-ip');
+    // const ip = await publicIpv4();
     const medianodeData: MediaNodeData = {
-      id: ip || config.nodeId,
+      id: config.nodeId,
       ip: '0.0.0.0',
       address: `${config.port}`,
       grpcPort: `${config.grpcPort}`,

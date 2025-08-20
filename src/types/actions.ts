@@ -29,7 +29,7 @@ export enum MediaSignalingActions {
   Ping = 'ping',
   Pong = 'pong',
 
-  // Server management
+  // Server management`
   ServerShutdown = 'server_shutdown',
   ServerRestart = 'server_restart',
 
@@ -51,4 +51,6 @@ export enum MediaSignalingActions {
 
   // Custom actions placeholder
   Custom = 'custom',
+
+  RtpCapabilities = 'rtp_capabilities',
 }

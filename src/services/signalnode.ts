@@ -5,6 +5,7 @@ import { MediaSignalingActions as MSA } from '../types/actions';
 import { MessageRequest } from '../protos/gen/mediaSignalingPackage/MessageRequest';
 import { MessageResponse } from '../protos/gen/mediaSignalingPackage/MessageResponse';
 import { grpcServer } from '../servers/grpc-server';
+import { mediaSoupServer } from '../servers/mediasoup-server';
 
 enum ConnectionState {
   CONNECTING = 'CONNECTING',
@@ -48,6 +49,7 @@ class SignalNode extends EventEmitter {
   private maxConsecutiveErrors: number = 5;
   private consecutiveErrors: number = 0;
   private isShuttingDown: boolean = false;
+  private pendingRequests: Map<string, (response: MessageResponse) => void>;
 
   static signalNodes = new Map<string, SignalNode>();
 
@@ -67,6 +69,7 @@ class SignalNode extends EventEmitter {
     this.call = call;
     this.metadata = call.metadata;
     this.connectionState = ConnectionState.CONNECTING;
+    this.pendingRequests = new Map();
 
     const now = Date.now();
     this.metrics = {
@@ -211,7 +214,18 @@ class SignalNode extends EventEmitter {
       this.metrics.lastActivity = Date.now();
       this.consecutiveErrors = 0; // Reset error count on successful message
 
-      const { action, args } = message;
+      const { action, args, requestId } = message;
+
+      if (requestId?.length) {
+        const resolver = this.pendingRequests.get(requestId);
+        if (resolver) {
+          // this means this instance initiated this request for response .
+          // resolve and return
+          resolver(message);
+          this.pendingRequests.delete(requestId);
+          return;
+        }
+      }
 
       if (!action) {
         console.warn(`⚠️  Received message without action from ${this.id}`);
@@ -360,7 +374,8 @@ class SignalNode extends EventEmitter {
     console.log(`🧹 Cleaned up SignalNode ${this.id}`);
   }
 
-  private sendConnectionConfirmation(): void {
+  private async sendConnectionConfirmation(): Promise<void> {
+    const rtpCapabilities = await mediaSoupServer.getRouterRtpCapabilities();
     this.sendMessage(MSA.Connected, {
       status: 'success',
       nodeId: this.id,
@@ -368,6 +383,7 @@ class SignalNode extends EventEmitter {
       message: 'Successfully connected to Media Signaling Server',
       timestamp: Date.now(),
       serverMetrics: grpcServer.getStats() || {},
+      routerRtpCapabilities: rtpCapabilities,
     });
   }
 
@@ -398,19 +414,42 @@ class SignalNode extends EventEmitter {
 
       console.log(`📤 Sent ${action} to ${this.id} (${messageId})`);
 
-      this.emit('messageSent', {
-        nodeId: this.id,
-        action,
-        args,
-        messageId,
-        timestamp: Date.now(),
-      });
-
       return true;
     } catch (error) {
       console.error(`❌ Error sending message to ${this.id}:`, error);
       this.handleError(error as Error, 'send_message_error');
       return false;
+    }
+  }
+
+  async sendMessageForResponse(
+    action: MSA,
+    args?: { [key: string]: unknown }
+  ): Promise<MessageResponse | null> {
+    if (!this.call) {
+      console.warn(
+        `⚠️  Cannot send message to MediaNode ${this.id}: not connected`
+      );
+      return null;
+    }
+
+    try {
+      const requestId = crypto.randomUUID();
+      const message: MessageRequest = {
+        action,
+        args: JSON.stringify(args || {}),
+        requestId,
+      };
+
+      return new Promise<MessageResponse>(resolve => {
+        if (this.call) {
+          this.pendingRequests.set(requestId, resolve); // save resolve
+          this.call.write(message);
+        }
+      });
+    } catch (error) {
+      console.error(`❌ Error sending message to MediaNode ${this.id}:`, error);
+      throw error;
     }
   }
 
@@ -552,15 +591,23 @@ class SignalNode extends EventEmitter {
 
   // Action handlers for different message types
   private actionHandlers: {
-    [key in MSA]?: (args: { [key: string]: unknown }) => void;
+    [key in MSA]?: (
+      args: { [key: string]: unknown },
+      requestId?: string
+    ) => void;
   } = {
     [MSA.Connected]: args => {
       console.log(`✅ Connection confirmed from ${this.id}:`, args);
       this.emit('connectionConfirmed', { nodeId: this.id, args });
     },
 
-    [MSA.Heartbeat]: args => {
-      this.handleHeartbeat(args);
+    [MSA.Ping]: (args, requestId) => {
+      console.log('Signal Server Pinged Mediaserver');
+      this.call.write({
+        action: MSA.Pong,
+        args: JSON.stringify(args),
+        requestId,
+      });
     },
 
     [MSA.HeartbeatAck]: args => {

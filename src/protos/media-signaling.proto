@@ -9,9 +9,11 @@ service MediaSignaling {
 message MessageRequest {
   string action = 1;
   string args = 2;
+  string requestId = 3;
 }
 
 message MessageResponse {
   string action = 1;
   string args = 2;
+  string requestId = 3;
 }

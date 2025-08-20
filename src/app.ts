@@ -9,6 +9,7 @@ import { redisServer } from './servers/redis-server';
 import { grpcServer } from './servers/grpc-server';
 import { MediaNodeData } from './types';
 import { getRedisKey, registerMediaNode } from './lib/utils';
+import { mediaSoupServer } from './servers/mediasoup-server';
 
 const app = express();
 app.use(cors(config.cors));
@@ -26,9 +27,12 @@ let medianodeData: MediaNodeData;
     httpsServer.listen(config.port, () => {
       console.log(`Server running on port ${config.port}`);
     });
+    await grpcServer.start();
+
+    await mediaSoupServer.start();
+
     medianodeData = await registerMediaNode();
     console.log('Register medianode');
-    await grpcServer.start();
   } catch (error) {
     console.error('Initialization error:', error);
     process.exit(1);
