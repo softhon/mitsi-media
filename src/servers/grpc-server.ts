@@ -301,7 +301,7 @@ class GrpcServer extends EventEmitter {
 
     // Cleanup interval for stale connections
     this.cleanupInterval = setInterval(() => {
-      this.cleanupStaleConnections();
+      // this.cleanupStaleConnections();
     }, 60000); // Every minute
   }
 
@@ -341,28 +341,6 @@ class GrpcServer extends EventEmitter {
     });
 
     this.emit('metricsReport', { stats, timestamp: new Date() });
-  }
-
-  private cleanupStaleConnections(): void {
-    try {
-      const nodes = SignalNode.getNodes();
-      const staleThreshold = 5 * 60 * 1000; // 5 minutes
-      let cleanedCount = 0;
-
-      nodes.forEach(node => {
-        if (node.isStale(staleThreshold)) {
-          console.log(`🧹 Cleaning up stale connection: ${node.id}`);
-          node.forceDisconnect('stale_connection_cleanup');
-          cleanedCount++;
-        }
-      });
-
-      if (cleanedCount > 0) {
-        console.log(`🧹 Cleaned up ${cleanedCount} stale connections`);
-      }
-    } catch (error) {
-      console.error('❌ Error during cleanup:', error);
-    }
   }
 
   async stop(): Promise<void> {

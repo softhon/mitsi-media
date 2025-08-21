@@ -2,18 +2,24 @@ import config from '../config';
 import { redisServer } from '../servers/redis-server';
 import { MediaNodeData } from '../types';
 
+export const HEARTBEAT_TIMEOUT = 60000; // 90 seconds / 1.30mins
+
 export const getRedisKey = {
-  room: (roomId: string): string => `room-${roomId}`,
-  lobby: (roomId: string): string => `lobby-${roomId}`,
-  roomPeers: (roomId: string): string => `room-${roomId}-peers`,
-  roomPeerIds: (roomId: string): string => `room-${roomId}-peerids`,
+  room: (roomId: string): string => `room:${roomId}`,
+  lobby: (roomId: string): string => `lobby:${roomId}`,
+  roomPeers: (roomId: string): string => `room:${roomId}:peers`,
+  roomPeerIds: (roomId: string): string => `room:${roomId}:peerids`,
   roomActiveSpeakerPeerId: (roomId: string): string =>
-    `room-${roomId}-activespeakerpeerid`,
-  roomsOngoing: (): string => `rooms-ongoing`,
-  medianodesRunning: (): string => `medianodes-running`,
-  signalnodesRunning: (): string => `signalnodes-running`,
-  roomMedianodes: (roomId: string): string => `room-${roomId}-medianodes`,
-  roomSignalnodes: (roomId: string): string => `room-${roomId}-signalnodes`,
+    `room:${roomId}:activespeakerpeerid`,
+  rooms: (): string => `rooms`,
+  medianodes: (): string => `medianodes`,
+  signalnodes: (): string => `signalnodes`,
+  roomMedianodes: (roomId: string): string => `room:${roomId}:medianodes`,
+  roomSignalnodes: (roomId: string): string => `room:${roomId}:signalnodes`,
+};
+
+export const getPubSubChannel = {
+  room: (roomId: string): string => `room-${roomId}`,
 };
 
 export const registerMediaNode = async (): Promise<MediaNodeData> => {
@@ -27,7 +33,7 @@ export const registerMediaNode = async (): Promise<MediaNodeData> => {
       grpcPort: `${config.grpcPort}`,
     };
     await redisServer.sAdd(
-      getRedisKey['medianodesRunning'](),
+      getRedisKey['medianodes'](),
       JSON.stringify(medianodeData)
     );
     return medianodeData;

@@ -155,6 +155,14 @@ export interface TransportConnectionParams {
   srtpParameters?: mediasoupTypes.SrtpParameters;
 }
 
+export enum ConnectionState {
+  Connecting = 'connecting',
+  Connected = 'connected',
+  Disconnecting = 'disconnecting',
+  Disconnected = 'disconnected',
+  Error = 'error',
+}
+
 export type AppDataWithRouterId = mediasoupTypes.AppData & { routerId: string };
 
 // WorkerData, RouterData, TransportData, ConsumerData, Producer
