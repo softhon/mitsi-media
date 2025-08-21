@@ -10,6 +10,7 @@ import { ValidationSchema } from '../lib/schema';
 import Room from './room';
 import Peer from './peer';
 import { ConnectionState } from '../types';
+import { parseArgs } from '../lib/utils';
 
 class SignalNode extends EventEmitter {
   id: string;
@@ -133,6 +134,7 @@ class SignalNode extends EventEmitter {
       const { action, args, requestId } = message;
 
       if (requestId?.length) {
+        console.log('Got a request expecting response');
         const resolver = this.pendingRequests.get(requestId);
         if (resolver) {
           // this means this instance initiated this request for response .
@@ -144,29 +146,12 @@ class SignalNode extends EventEmitter {
       }
 
       if (!action) {
-        console.warn(`⚠️  Received message without action from ${this.id}`);
-        this.handleError(
-          new Error('Missing action in message'),
-          'protocol_error'
-        );
         return;
       }
 
       console.log(`Received message from ${this.id}: ${action}`);
 
-      let parsedArgs: { [key: string]: unknown } = {};
-      if (args) {
-        try {
-          parsedArgs = JSON.parse(args);
-        } catch (parseError) {
-          console.error(
-            `Failed to parse message args from ${this.id}:`,
-            parseError
-          );
-          this.handleError(parseError as Error, 'parse_error');
-          return;
-        }
-      }
+      const parsedArgs = parseArgs(args);
 
       // Handle special system messages
       if (action === Actions.Heartbeat) {
@@ -178,7 +163,7 @@ class SignalNode extends EventEmitter {
       const handler = this.actionHandlers[action as Actions];
       if (handler) {
         try {
-          handler(parsedArgs);
+          handler(parsedArgs, requestId);
         } catch (handlerError) {
           console.error(
             ` Error in handler for action ${action} from ${this.id}:`,
@@ -480,7 +465,7 @@ class SignalNode extends EventEmitter {
     },
 
     [Actions.Ping]: (args, requestId) => {
-      console.log('Signal Server Pinged Mediaserver');
+      console.log('Signal Server Pinged Mediaserver requestId', requestId);
       this.call.write({
         action: Actions.Pong,
         args: JSON.stringify(args),

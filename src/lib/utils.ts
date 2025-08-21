@@ -41,3 +41,15 @@ export const registerMediaNode = async (): Promise<MediaNodeData> => {
     throw error;
   }
 };
+
+export const parseArgs = (args?: string): { [key: string]: unknown } => {
+  let parsedArgs: { [key: string]: unknown } = {};
+  if (args) {
+    try {
+      parsedArgs = JSON.parse(args);
+    } catch (parseError) {
+      throw parseError;
+    }
+  }
+  return parsedArgs;
+};
