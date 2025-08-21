@@ -7,6 +7,7 @@ import { redisServer } from '../servers/redis-server';
 import { getRedisKey } from '../lib/utils';
 import { ServiceActions } from '../types/actions';
 import MediaNode from './medianode';
+import { AppDataWithRouterId } from '../types';
 
 class Room extends EventEmitter {
   roomId: string;
@@ -322,7 +323,7 @@ class Room extends EventEmitter {
     router,
   }: {
     router: mediasoupTypes.Router;
-  }): Promise<mediasoupTypes.PipeTransport> {
+  }): Promise<mediasoupTypes.PipeTransport<AppDataWithRouterId>> {
     const pipeTransport = await router.createPipeTransport({
       listenInfo: config.mediasoup.transportListenInfo,
       enableSctp: true,

@@ -155,4 +155,6 @@ export interface TransportConnectionParams {
   srtpParameters?: mediasoupTypes.SrtpParameters;
 }
 
+export type AppDataWithRouterId = mediasoupTypes.AppData & { routerId: string };
+
 // WorkerData, RouterData, TransportData, ConsumerData, Producer

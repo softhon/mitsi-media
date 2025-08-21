@@ -1,10 +1,8 @@
 import { EventEmitter } from 'events';
 import { types as mediasoupTypes } from 'mediasoup';
 import Room from './room';
-import { TransportConnectionParams } from '../types';
+import { AppDataWithRouterId, TransportConnectionParams } from '../types';
 import config from '../config';
-
-type AppDataWithRouterId = mediasoupTypes.AppData & { routerId: string };
 
 class MediaNode extends EventEmitter {
   id: string;
@@ -81,11 +79,12 @@ class MediaNode extends EventEmitter {
         mediasoupTypes.PipeTransport<AppDataWithRouterId>
       >();
       for (const transport of sendPipeTransports) {
-        const routerId = transport.appData.routerId;
+        const routerId = transport.appData.routerId as string;
         sendPipeTansportsMap.set(routerId, transport);
       }
 
       const recvRouter = room.getLeastLoadedRouter();
+      if (!recvRouter) throw 'No router found';
       // const recvPipeTransport = await meeting.createPipeTransport({ router: recvRouter });
 
       const mediaNode = new MediaNode({
