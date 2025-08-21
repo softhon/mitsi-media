@@ -11,7 +11,7 @@ import { ProtoGrpcType } from '../protos/gen/media-signaling';
 
 import config from '../config';
 import SignalNode from '../services/signalnode';
-import { MediaSignalingActions as MSA } from '../types/actions';
+import { Actions as MSA } from '../types/actions';
 
 interface ServerStats {
   totalConnections: number;

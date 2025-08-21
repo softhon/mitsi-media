@@ -1,11 +1,14 @@
 import EventEmitter from 'events';
 import * as grpc from '@grpc/grpc-js';
 
-import { MediaSignalingActions as MSA } from '../types/actions';
+import { Actions } from '../types/actions';
 import { MessageRequest } from '../protos/gen/mediaSignalingPackage/MessageRequest';
 import { MessageResponse } from '../protos/gen/mediaSignalingPackage/MessageResponse';
 import { grpcServer } from '../servers/grpc-server';
 import { mediaSoupServer } from '../servers/mediasoup-server';
+import { ValidationSchema } from '../lib/schema';
+import Room from './room';
+import Peer from './peer';
 
 enum ConnectionState {
   CONNECTING = 'CONNECTING',
@@ -27,7 +30,7 @@ interface ConnectionMetrics {
 }
 
 interface MessageQueueItem {
-  action: MSA;
+  action: Actions;
   args?: { [key: string]: unknown };
   timestamp: number;
   retries: number;
@@ -153,7 +156,7 @@ class SignalNode extends EventEmitter {
       // Send heartbeat
       try {
         if (
-          this.sendMessage(MSA.Heartbeat, {
+          this.sendMessage(Actions.Heartbeat, {
             timestamp: Date.now(),
             connectionId: this.connectionId,
           })
@@ -253,13 +256,13 @@ class SignalNode extends EventEmitter {
       }
 
       // Handle special system messages
-      if (action === MSA.Heartbeat) {
+      if (action === Actions.Heartbeat) {
         this.handleHeartbeat(parsedArgs);
         return;
       }
 
       // Find and execute handler
-      const handler = this.actionHandlers[action as MSA];
+      const handler = this.actionHandlers[action as Actions];
       if (handler) {
         try {
           handler(parsedArgs);
@@ -297,7 +300,7 @@ class SignalNode extends EventEmitter {
     this.metrics.heartbeatsMissed = 0; // Reset missed heartbeats
 
     // Respond to heartbeat
-    this.sendMessage(MSA.HeartbeatAck, {
+    this.sendMessage(Actions.HeartbeatAck, {
       timestamp: Date.now(),
       connectionId: this.connectionId,
       metrics: {
@@ -376,7 +379,7 @@ class SignalNode extends EventEmitter {
 
   private async sendConnectionConfirmation(): Promise<void> {
     const rtpCapabilities = await mediaSoupServer.getRouterRtpCapabilities();
-    this.sendMessage(MSA.Connected, {
+    this.sendMessage(Actions.Connected, {
       status: 'success',
       nodeId: this.id,
       connectionId: this.connectionId,
@@ -388,7 +391,7 @@ class SignalNode extends EventEmitter {
   }
 
   // Public methods
-  sendMessage(action: MSA, args?: { [key: string]: unknown }): boolean {
+  sendMessage(action: Actions, args?: { [key: string]: unknown }): boolean {
     if (!this.isActive()) {
       console.warn(`⚠️  Cannot send message to ${this.id}: node is inactive`);
       return false;
@@ -423,7 +426,7 @@ class SignalNode extends EventEmitter {
   }
 
   async sendMessageForResponse(
-    action: MSA,
+    action: Actions,
     args?: { [key: string]: unknown }
   ): Promise<MessageResponse | null> {
     if (!this.call) {
@@ -452,8 +455,33 @@ class SignalNode extends EventEmitter {
       throw error;
     }
   }
+  sendResponse(
+    action: Actions,
+    requestId: string,
+    args: { [key: string]: unknown }
+  ): void {
+    if (!this.call) {
+      console.warn(
+        `⚠️Cannot send message to MediaNode ${this.id}: not connected`
+      );
+      return;
+    }
 
-  queueMessage(action: MSA, args?: { [key: string]: unknown }): boolean {
+    try {
+      const message: MessageRequest = {
+        action,
+        args: JSON.stringify(args || {}),
+        requestId,
+      };
+
+      this.call.write(message);
+    } catch (error) {
+      console.error(`❌ Error sending message to MediaNode ${this.id}:`, error);
+      throw error;
+    }
+  }
+
+  queueMessage(action: Actions, args?: { [key: string]: unknown }): boolean {
     if (this.messageQueue.length >= this.maxQueueSize) {
       console.warn(
         `⚠️  Message queue full for ${this.id}, dropping oldest message`
@@ -517,7 +545,7 @@ class SignalNode extends EventEmitter {
 
     try {
       // Send disconnect notification
-      this.sendMessage(MSA.ServerShutdown, {
+      this.sendMessage(Actions.ServerShutdown, {
         message: 'Server is shutting down',
         reason,
         timestamp: Date.now(),
@@ -589,35 +617,6 @@ class SignalNode extends EventEmitter {
     return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
   }
 
-  // Action handlers for different message types
-  private actionHandlers: {
-    [key in MSA]?: (
-      args: { [key: string]: unknown },
-      requestId?: string
-    ) => void;
-  } = {
-    [MSA.Connected]: args => {
-      console.log(`✅ Connection confirmed from ${this.id}:`, args);
-      this.emit('connectionConfirmed', { nodeId: this.id, args });
-    },
-
-    [MSA.Ping]: (args, requestId) => {
-      console.log('Signal Server Pinged Mediaserver');
-      this.call.write({
-        action: MSA.Pong,
-        args: JSON.stringify(args),
-        requestId,
-      });
-    },
-
-    [MSA.HeartbeatAck]: args => {
-      console.log(`💗 Heartbeat acknowledged by ${this.id}`, args);
-      this.metrics.lastActivity = Date.now();
-    },
-
-    // Add more handlers as needed for your specific actions
-  };
-
   // Static methods for managing all nodes
   static getNodes(): SignalNode[] {
     return Array.from(SignalNode.signalNodes.values());
@@ -660,7 +659,7 @@ class SignalNode extends EventEmitter {
   }
 
   static broadcastMessage(
-    action: MSA,
+    action: Actions,
     args?: { [key: string]: unknown },
     options?: {
       excludeIds?: string[];
@@ -788,6 +787,63 @@ class SignalNode extends EventEmitter {
       })),
     };
   }
+
+  // Action handlers for different message types
+  private actionHandlers: {
+    [key in Actions]?: (
+      args: { [key: string]: unknown },
+      requestId?: string
+    ) => void;
+  } = {
+    [Actions.Connected]: args => {
+      console.log(`✅ Connection confirmed from ${this.id}:`, args);
+      this.emit('connectionConfirmed', { nodeId: this.id, args });
+    },
+
+    [Actions.Ping]: (args, requestId) => {
+      console.log('Signal Server Pinged Mediaserver');
+      this.call.write({
+        action: Actions.Pong,
+        args: JSON.stringify(args),
+        requestId,
+      });
+    },
+
+    [Actions.HeartbeatAck]: args => {
+      console.log(`💗 Heartbeat acknowledged by ${this.id}`, args);
+      this.metrics.lastActivity = Date.now();
+    },
+
+    // Add more handlers as needed for your specific actions
+
+    [Actions.CreatePeer]: async (args, requestId) => {
+      try {
+        if (!requestId) throw 'No request id';
+
+        const data = ValidationSchema.createPeer.parse(args);
+        const { roomId, peerId, peerType, rtpCapabilities } = data;
+        const room = Room.getRoom(roomId) ?? (await Room.create(roomId));
+
+        const router = await room.assignRouterToPeer();
+        if (!router) throw 'Router not assigned to peer';
+        const peer = new Peer({
+          id: peerId,
+          roomId,
+          router,
+          rtpCapabilities,
+          signalNodeId: this.id,
+          type: peerType,
+        });
+
+        room.addPeer(peer);
+        this.sendResponse(Actions.CreatePeer, requestId, {
+          routerId: router.id,
+        });
+      } catch (error) {
+        console.log(error);
+      }
+    },
+  };
 }
 
 export default SignalNode;

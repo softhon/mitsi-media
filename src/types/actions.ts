@@ -1,35 +1,49 @@
-export enum SignalingClientActions {
+export enum Actions {
   Message = 'message',
-  Heartbeat = 'heartbeat',
   Connected = 'connected',
-  JoinRoom = 'join-room',
-  JoinVisitors = 'join-visitors',
-  JoinWaiters = 'join-waiters',
-  GetRoomData = 'get-room-data',
-  GetRtpCapabilities = 'get-rtp-capabilities',
-}
-export enum PubSubActions {
-  Message = 'message',
-  EndMeeting = 'end-meeting',
-}
+  JoinRoom = 'join_room',
+  JoinVisitors = 'join_visitors',
+  JoinWaiters = 'join_waiters',
+  GetRoomData = 'get_room_data',
 
-export enum ServiceActions {
-  Close = 'close',
-}
+  GetRouterRtpCapabilities = 'get_router_rtp_capabilities',
+  CreateWebrtcTransports = 'create_webrtc_transports',
+  ConnectWebrtcTransports = 'connect_webrtc_transports',
+  CreateConsumersOfAllProducers = 'create_consumers_of_all_producers',
+  CreateProducer = 'create_producer',
+  CloseProducer = 'close_producer',
+  PauseProducer = 'pause_producer',
+  ResumeProducer = 'resume_producer',
+  ResumeConsumer = 'resume_consumer',
+  PauseConsumer = 'pause_consumer',
+  RestartIce = 'restart_ice',
 
-export enum MediaSignalingActions {
-  // Connection lifecycle
-  Connected = 'connected',
-  Disconnect = 'disconnect',
-  Reconnect = 'reconnect',
+  CreatePeer = 'create_peer',
 
-  // Health monitoring
+  Mute = 'mute',
+  OffCamera = 'off_camera',
+  StopScreen = 'stop_screen',
+  RaiseHand = 'raise_hand',
+  LowerHands = 'lower_hands',
+  SendChat = 'send_chat',
+  SendReaction = 'send_reaction',
+  GetWaiters = 'get_waiters',
+  AdmitWaiters = 'admit_waiters',
+  DeclineWaiters = 'decline_waiters',
+  Record = 'Record',
+
+  RemovePeer = 'remove_peer',
+  AddRole = 'add_role',
+  RemoveRole = 'remove_role',
+
+  EndMeeting = 'end_meeting',
+
   Heartbeat = 'heartbeat',
   HeartbeatAck = 'heartbeat_ack',
   Ping = 'ping',
   Pong = 'pong',
 
-  // Server management`
+  // Server management
   ServerShutdown = 'server_shutdown',
   ServerRestart = 'server_restart',
 
@@ -37,20 +51,5 @@ export enum MediaSignalingActions {
   Error = 'error',
   ConnectionError = 'connection_error',
 
-  // Media specific actions (add your custom actions here)
-  MediaOffer = 'media_offer',
-  MediaAnswer = 'media_answer',
-  IceCandidate = 'ice_candidate',
-  MediaStreamStart = 'media_stream_start',
-  MediaStreamStop = 'media_stream_stop',
-
-  // Room/channel management
-  JoinRoom = 'join_room',
-  LeaveRoom = 'leave_room',
-  RoomUpdate = 'room_update',
-
-  // Custom actions placeholder
-  Custom = 'custom',
-
-  RtpCapabilities = 'rtp_capabilities',
+  Close = 'close',
 }
