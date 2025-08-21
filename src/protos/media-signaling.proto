@@ -1,16 +1,19 @@
 syntax = "proto3";
-package media_signaling_package;
+
+package mediaSignalingPackage;
 
 service MediaSignaling {
- rpc SendMessage(stream SendMessageRequest) returns (stream SendMessageResponse) {};
-}
-message SendMessageRequest {
-  string type = 1;
-  map<string, string> args = 2;
+ rpc Message(stream MessageRequest) returns (stream MessageResponse) {};
 }
 
-message SendMessageResponse {
-  string type = 1;
-  map<string, string> args = 2;
+message MessageRequest {
+  string action = 1;
+  string args = 2;
+  string requestId = 3;
 }
 
+message MessageResponse {
+  string action = 1;
+  string args = 2;
+  string requestId = 3;
+}

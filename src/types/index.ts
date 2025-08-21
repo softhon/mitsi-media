@@ -1,3 +1,5 @@
+import { types as mediasoupTypes } from 'mediasoup';
+
 export type ProducerSource = 'mic' | 'camera' | 'screen' | 'screenAudio';
 
 export type TransportKind = 'producer' | 'consumer';
@@ -6,7 +8,7 @@ export type AckCallback<T = { [key: string]: unknown }> = (res: {
   error?: Error | unknown | null;
   response?: T;
 }) => void;
-export type PeerType = 'Recorder' | 'Attendee';
+export type PeerType = 'Recorder' | 'Participant';
 
 export enum Role {
   Moderator = 'Moderator',
@@ -117,7 +119,8 @@ export interface ChatData {
 export interface MediaNodeData {
   id: string;
   ip: string;
-  host: string;
+  address: string;
+  grpcPort: string;
 }
 
 export interface Reaction {
@@ -128,3 +131,30 @@ export interface Reaction {
   position: `${number}%`;
   timestamp: number;
 }
+
+export interface PipeConsumerParams {
+  producerId: string;
+  kind: mediasoupTypes.MediaKind;
+  producerPaused: boolean;
+  rtpParameters: mediasoupTypes.RtpParameters;
+  sendTranportId: string;
+  roomId: string;
+  recvMediaNodeId: string;
+  sendMediaNodeId: string;
+  producerPeerId: string;
+  appData: mediasoupTypes.AppData;
+}
+
+export interface TransportConnectionParams {
+  routerId: string;
+  transportId: string;
+  sendTransportId?: string;
+  recvTransportId?: string;
+  ip: string;
+  port: number;
+  srtpParameters?: mediasoupTypes.SrtpParameters;
+}
+
+export type AppDataWithRouterId = mediasoupTypes.AppData & { routerId: string };
+
+// WorkerData, RouterData, TransportData, ConsumerData, Producer
