@@ -93,8 +93,8 @@ class Room extends EventEmitter {
         mediasoupTypes.AudioLevelObserver
       > = new Map();
 
-      for (const worker of mediaSoupServer.getWorkers()) {
-        const router = await worker.createRouter({
+      for (const workerInfo of mediaSoupServer.getHealthyWorkers()) {
+        const router = await workerInfo.worker.createRouter({
           mediaCodecs: config.mediasoup.routerMediaCodecs,
         });
         routers.set(router.id, router);
