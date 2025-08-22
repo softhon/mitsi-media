@@ -28,4 +28,8 @@ export const ValidationSchema = {
     producerId: z.string(),
     source: z.enum(['mic', 'camera', 'screen']),
   }),
+
+  restartIce: roomIdPeerIdSchema.extend({
+    transportId: z.string(),
+  }),
 };

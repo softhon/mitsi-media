@@ -5,6 +5,7 @@ import { mediaSoupServer } from '../servers/mediasoup-server';
 import SignalNode from './signalnode';
 import { Actions } from '../types/actions';
 import { MessageResponse } from '../protos/gen/mediaSignalingPackage/MessageResponse';
+import Room from './room';
 
 class Peer extends EventEmitter {
   id: string;
@@ -170,6 +171,36 @@ class Peer extends EventEmitter {
     return producers;
   }
 
+  closeProducersBySource({
+    room,
+    source,
+  }: {
+    room: Room;
+    source: ProducerSource;
+  }): void {
+    try {
+      const producers = this.getProducersBySource(source);
+      producers.forEach(async producer => {
+        if (producer.kind === 'audio' && source === 'mic') {
+          const audioLevelObserver = room.audioLevelObservers.get(
+            this.router.id
+          );
+          if (audioLevelObserver) {
+            audioLevelObserver
+              .removeProducer({
+                producerId: producer.id,
+              })
+              .catch(error => {
+                console.log(error);
+              });
+          }
+        }
+        producer.close();
+      });
+    } catch (error) {
+      console.error('closeProducersBySource fialed ', { error });
+    }
+  }
   // Consumers methods
   addConsumer(consumer: mediasoupTypes.Consumer): void {
     this.consumers.set(consumer.id, consumer);

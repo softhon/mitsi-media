@@ -597,39 +597,6 @@ class SignalNode extends EventEmitter {
     }
   }
 
-  private closeProducersBySource({
-    room,
-    peer,
-    source,
-  }: {
-    room: Room;
-    peer: Peer;
-    source: ProducerSource;
-  }): void {
-    try {
-      const producers = peer.getProducersBySource(source);
-      producers.forEach(async producer => {
-        if (producer.kind === 'audio' && source === 'mic') {
-          const audioLevelObserver = room.audioLevelObservers.get(
-            peer.getRouter().id
-          );
-          if (audioLevelObserver) {
-            audioLevelObserver
-              .removeProducer({
-                producerId: producer.id,
-              })
-              .catch(error => {
-                console.log(error);
-              });
-          }
-        }
-        producer.close();
-      });
-    } catch (error) {
-      console.error('closeProducersBySource fialed ', { error });
-    }
-  }
-
   // Action handlers for different message types
   private actionHandlers: {
     [key in Actions]?: (
@@ -826,7 +793,7 @@ class SignalNode extends EventEmitter {
           throw 'Failed to create webrtc transport: Peer/room not found';
 
         const source = appData.source as ProducerSource;
-        this.closeProducersBySource({ room, peer, source });
+        peer.closeProducersBySource({ room, source });
 
         const transport = peer.getTransport(transportId);
         if (!transport) throw 'Transport not found';
@@ -879,9 +846,103 @@ class SignalNode extends EventEmitter {
               console.error('newPipeconsumer createPipeConsumer failed', error);
             });
         });
+
+        if (producer.kind === 'audio' && appData.source === 'mic') {
+          const audioLevelObserver = room.audioLevelObservers.get(
+            peer.getRouter().id
+          );
+          if (audioLevelObserver) {
+            audioLevelObserver.addProducer({ producerId: producer.id });
+          }
+        }
       } catch (error) {
         console.log(error);
         this.sendError(Actions.CreateProducer, requestId as string, error);
+      }
+    },
+
+    [Actions.CloseProducer]: args => {
+      try {
+        const data = ValidationSchema.manageProducer.parse(args);
+        const { peerId, roomId, source } = data;
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+
+        if (!room || !peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+
+        peer.closeProducersBySource({ room, source });
+      } catch (error) {
+        console.log(error);
+      }
+    },
+
+    [Actions.PauseProducer]: args => {
+      try {
+        const data = ValidationSchema.manageProducer.parse(args);
+        const { peerId, roomId, source } = data;
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+
+        if (!room || !peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+
+        const producers = peer.getProducersBySource(source);
+        producers.forEach(producer => {
+          producer.pause().catch(error => {
+            console.log(error);
+          });
+        });
+      } catch (error) {
+        console.log(error);
+      }
+    },
+
+    [Actions.ResumeProducer]: args => {
+      try {
+        const data = ValidationSchema.manageProducer.parse(args);
+        const { peerId, roomId, producerId } = data;
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+
+        if (!room || !peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+
+        const producer = peer.getProducer(producerId);
+        producer?.resume();
+      } catch (error) {
+        console.log(error);
+      }
+    },
+
+    [Actions.PauseConsumer]: args => {
+      console.log('PauseConsumer', args);
+    },
+
+    [Actions.ResumeConsumer]: args => {
+      console.log('ResumeConsumer', args);
+    },
+
+    [Actions.RestartIce]: async (args, requestId) => {
+      try {
+        if (!requestId) throw 'Require request id';
+        const data = ValidationSchema.restartIce.parse(args);
+        const { roomId, peerId, transportId } = data;
+
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+
+        if (!room || !peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+        const transport = peer.getTransport(transportId);
+        if (!transport) return;
+        const iceParameters = await transport.restartIce();
+        this.sendResponse(Actions.RestartIce, requestId, {
+          iceParameters,
+        });
+      } catch (error) {
+        console.log(error);
+        this.sendError(Actions.RestartIce, requestId as string, error);
       }
     },
   };
