@@ -1,5 +1,6 @@
 import EventEmitter from 'events';
 import * as grpc from '@grpc/grpc-js';
+import { types as mediasoupTypes } from 'mediasoup';
 
 import { Actions } from '../types/actions';
 import { MessageRequest } from '../protos/gen/mediaSignalingPackage/MessageRequest';
@@ -9,7 +10,7 @@ import { mediaSoupServer } from '../servers/mediasoup-server';
 import { ValidationSchema } from '../lib/schema';
 import Room from './room';
 import Peer from './peer';
-import { ConnectionState } from '../types';
+import { ConnectionState, TransportKind } from '../types';
 import { parseArgs } from '../lib/utils';
 
 class SignalNode extends EventEmitter {
@@ -322,7 +323,7 @@ class SignalNode extends EventEmitter {
   sendResponse(
     action: Actions,
     requestId: string,
-    args: { [key: string]: unknown }
+    response: { [key: string]: unknown }
   ): void {
     if (!this.call) {
       console.warn(
@@ -334,8 +335,34 @@ class SignalNode extends EventEmitter {
     try {
       const message: MessageRequest = {
         action,
-        args: JSON.stringify(args || {}),
         requestId,
+        args: JSON.stringify({
+          status: 'success',
+          response,
+        }),
+      };
+
+      this.call.write(message);
+    } catch (error) {
+      console.error(`❌ Error sending message to MediaNode ${this.id}:`, error);
+      throw error;
+    }
+  }
+  sendError(action: Actions, requestId: string, error: Error | unknown): void {
+    if (!this.call) {
+      console.warn(
+        `⚠️Cannot send message to MediaNode ${this.id}: not connected`
+      );
+      return;
+    }
+    try {
+      const message: MessageRequest = {
+        action,
+        requestId,
+        args: JSON.stringify({
+          status: 'error',
+          error,
+        }),
       };
 
       this.call.write(message);
@@ -452,6 +479,24 @@ class SignalNode extends EventEmitter {
 
   static broadcastMessage(): void {}
 
+  private async createTransport(
+    router: mediasoupTypes.Router,
+    type: TransportKind = 'consumer'
+  ): Promise<mediasoupTypes.WebRtcTransport> {
+    if (router.appData.webRtcServer) throw 'Webrtc server not found';
+    const webRtcServer = router.appData
+      .webRtcServer as mediasoupTypes.WebRtcServer;
+    const transport = await router.createWebRtcTransport({
+      webRtcServer,
+      appData: {
+        isConsumer: type === 'consumer',
+        isProducer: type === 'producer',
+      },
+    });
+
+    return transport;
+  }
+
   // Action handlers for different message types
   private actionHandlers: {
     [key in Actions]?: (
@@ -504,6 +549,7 @@ class SignalNode extends EventEmitter {
         });
       } catch (error) {
         console.log(error);
+        this.sendError(Actions.CreatePeer, requestId as string, error);
       }
     },
 
@@ -524,16 +570,46 @@ class SignalNode extends EventEmitter {
     [Actions.CreateWebrtcTransports]: async (args, requestId) => {
       try {
         if (!requestId) throw 'Request Id requested';
-
         const data = ValidationSchema.roomIdPeerId.parse(args);
         const { roomId, peerId } = data;
         const room = Room.getRoom(roomId);
         const peer = room?.getPeer(peerId);
-        peer?.close();
 
+        if (!peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+
+        const producerTransport = await this.createTransport(
+          peer.router,
+          'producer'
+        );
+        const consumerTransport = await this.createTransport(
+          peer.router,
+          'consumer'
+        );
+
+        peer.addTransport(producerTransport);
+        peer.addTransport(consumerTransport);
+
+        this.sendResponse(Actions.CreateWebrtcTransports, requestId, {
+          producerTransportParams: {
+            id: producerTransport.id,
+            iceParameters: producerTransport.iceParameters,
+            iceCandidates: producerTransport.iceCandidates,
+            dtlsParameters: producerTransport.dtlsParameters,
+            sctpParameters: producerTransport.sctpParameters,
+          },
+          consumerTransportParams: {
+            id: consumerTransport.id,
+            iceParameters: consumerTransport.iceParameters,
+            iceCandidates: consumerTransport.iceCandidates,
+            dtlsParameters: consumerTransport.dtlsParameters,
+            sctpParameters: consumerTransport.sctpParameters,
+          },
+        });
         console.log('Close Peer');
       } catch (error) {
         console.log(error);
+        this.sendError(Actions.CreatePeer, requestId as string, error);
       }
     },
   };
