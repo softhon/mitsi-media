@@ -701,6 +701,54 @@ class SignalNode extends EventEmitter {
         this.sendError(Actions.CreatePeer, requestId as string, error);
       }
     },
+
+    [Actions.CreateConsumersOfAllProducers]: async args => {
+      try {
+        const data = ValidationSchema.roomIdPeerId.parse(args);
+        const { roomId, peerId } = data;
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+
+        if (!room || !peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+        const existingPeers = room.getPeers();
+
+        // create consumer from producers of existing peers
+        existingPeers.forEach(existingPeer => {
+          // ingore the peer that requested this
+          if (existingPeer.id === peerId) return;
+          const peerProducers = existingPeer.getProducers();
+          peerProducers.forEach(producer => {
+            this.createConsumer({
+              consumingPeer: peer,
+              producerPeerId: existingPeer.id,
+              producer: producer,
+              room,
+            }).catch(error => {
+              console.log(error);
+            });
+          });
+        });
+
+        // create consumer from producer in connected media
+        const mediaNodes = room.getMediaNodes();
+        for (const mediaNode of mediaNodes) {
+          const producers = mediaNode.getProducers();
+          for (const producer of producers) {
+            this.createConsumer({
+              consumingPeer: peer,
+              producer: producer,
+              room,
+              producerPeerId: producer.appData.peerId as string,
+            }).catch(error => {
+              console.error('create pipeConsumer fialed', { error });
+            });
+          }
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    },
   };
 }
 
