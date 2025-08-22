@@ -7,16 +7,25 @@ const roomIdPeerIdSchema = z.object({
 
 export const ValidationSchema = {
   roomIdPeerId: roomIdPeerIdSchema,
-  createPeer: z.object({
-    peerId: z.string(),
-    roomId: z.string(),
+  createPeer: roomIdPeerIdSchema.extend({
     rtpCapabilities: z.any(),
     peerType: z.enum(['Participant', 'Recorder']),
   }),
 
-  connectWebRtcTransport: z.object({
-    ...roomIdPeerIdSchema,
+  connectWebRtcTransport: roomIdPeerIdSchema.extend({
     transportId: z.string(),
     dtlsParameters: z.any(),
+  }),
+
+  createProducer: roomIdPeerIdSchema.extend({
+    rtpParameters: z.any(),
+    transportId: z.string(),
+    kind: z.enum(['audio', 'video']),
+    appData: z.any(),
+  }),
+
+  manageProducer: roomIdPeerIdSchema.extend({
+    producerId: z.string(),
+    source: z.enum(['mic', 'camera', 'screen']),
   }),
 };

@@ -18,7 +18,7 @@ class Peer extends EventEmitter {
   private producers: Map<string, mediasoupTypes.Producer>;
   private consumers: Map<string, mediasoupTypes.Consumer>;
 
-  router: mediasoupTypes.Router;
+  private router: mediasoupTypes.Router;
   workerPid: number;
 
   static peers = new Map<string, Peer>();
@@ -111,6 +111,23 @@ class Peer extends EventEmitter {
     transport.observer.on('close', () => {
       this.transports.delete(transport.id);
     });
+  }
+
+  async pipeToRouter({
+    router,
+    producerId,
+  }: {
+    router: mediasoupTypes.Router;
+    producerId: string;
+  }): Promise<mediasoupTypes.PipeToRouterResult> {
+    return this.router.pipeToRouter({
+      router,
+      producerId,
+    });
+  }
+
+  getRouter(): mediasoupTypes.Router {
+    return this.router;
   }
 
   getTransport(id: string): mediasoupTypes.WebRtcTransport | undefined {

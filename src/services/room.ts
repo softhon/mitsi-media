@@ -209,21 +209,21 @@ class Room extends EventEmitter {
   ): Promise<void> {
     try {
       const peersToPipe = Array.from(this.peers.values()).filter(
-        peer => peer.router.id !== router.id
+        peer => peer.getRouter().id !== router.id
       );
       for (const peer of peersToPipe) {
-        const srcRouter = peer.router;
+        const srcRouter = peer.getRouter();
         if (srcRouter) {
-          for (const producerId of peer.producers.keys()) {
+          for (const producer of peer.getProducers()) {
             if (
               (
                 router.appData.producers as Map<string, mediasoupTypes.Producer>
-              ).has(producerId)
+              ).has(producer.id)
             ) {
               continue;
             }
             await srcRouter.pipeToRouter({
-              producerId,
+              producerId: producer.id,
               router,
             });
           }
@@ -344,7 +344,7 @@ class Room extends EventEmitter {
   }): Promise<void> {
     const peers = this.getPeers();
     for (const peer of peers) {
-      const peerProducers = peer.producers.values();
+      const peerProducers = peer.getProducers().values();
       for (const producer of peerProducers) {
         this.createPipeConsumer({
           producer,

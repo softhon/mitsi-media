@@ -10,8 +10,13 @@ import { mediaSoupServer } from '../servers/mediasoup-server';
 import { ValidationSchema } from '../lib/schema';
 import Room from './room';
 import Peer from './peer';
-import { ConnectionState, TransportKind } from '../types';
-import { parseArgs } from '../lib/utils';
+import {
+  ConnectionState,
+  PendingRequest,
+  ProducerSource,
+  TransportKind,
+} from '../types';
+import { parseArguments as parseArguments } from '../lib/utils';
 
 class SignalNode extends EventEmitter {
   id: string;
@@ -23,7 +28,7 @@ class SignalNode extends EventEmitter {
   private heartbeatInterval?: NodeJS.Timeout;
   private heartbeatTimeout: number = 60000;
   private isShuttingDown: boolean = false;
-  private pendingRequests: Map<string, (response: MessageResponse) => void>;
+  private pendingRequests: Map<string, PendingRequest>;
 
   static signalNodes = new Map<string, SignalNode>();
 
@@ -133,26 +138,29 @@ class SignalNode extends EventEmitter {
   private handleIncomingMessage(message: MessageRequest): void {
     try {
       const { action, args, requestId } = message;
+      if (!action) return;
+
+      const parsedArgs = parseArguments(args);
 
       if (requestId?.length) {
         console.log('Got a request expecting response');
-        const resolver = this.pendingRequests.get(requestId);
-        if (resolver) {
+        const pendingRequest = this.pendingRequests.get(requestId);
+        if (pendingRequest) {
           // this means this instance initiated this request for response .
           // resolve and return
-          resolver(message);
+          if (parsedArgs.status === 'error') {
+            console.log(action, 'pending request Returned error');
+            pendingRequest.reject(parsedArgs.error as Error);
+          } else {
+            console.log(action, 'pending request Returned success');
+            pendingRequest.resolve(message);
+          }
           this.pendingRequests.delete(requestId);
           return;
         }
       }
 
-      if (!action) {
-        return;
-      }
-
       console.log(`Received message from ${this.id}: ${action}`);
-
-      const parsedArgs = parseArgs(args);
 
       // Handle special system messages
       if (action === Actions.Heartbeat) {
@@ -309,14 +317,17 @@ class SignalNode extends EventEmitter {
         requestId,
       };
 
-      return new Promise<MessageResponse>(resolve => {
+      return new Promise<MessageResponse>((resolve, reject) => {
         if (this.call) {
-          this.pendingRequests.set(requestId, resolve); // save resolve
+          this.pendingRequests.set(requestId, {
+            resolve,
+            reject,
+          }); // save resolve
           this.call.write(message);
         }
       });
     } catch (error) {
-      console.error(`❌ Error sending message to MediaNode ${this.id}:`, error);
+      console.error(`Error sending message to MediaNode ${this.id}:`, error);
       throw error;
     }
   }
@@ -344,7 +355,7 @@ class SignalNode extends EventEmitter {
 
       this.call.write(message);
     } catch (error) {
-      console.error(`❌ Error sending message to MediaNode ${this.id}:`, error);
+      console.error(`Error sending message to MediaNode ${this.id}:`, error);
       throw error;
     }
   }
@@ -367,7 +378,7 @@ class SignalNode extends EventEmitter {
 
       this.call.write(message);
     } catch (error) {
-      console.error(`❌ Error sending message to MediaNode ${this.id}:`, error);
+      console.error(`Error sending message to MediaNode ${this.id}:`, error);
       throw error;
     }
   }
@@ -510,7 +521,7 @@ class SignalNode extends EventEmitter {
   }): Promise<void> {
     try {
       if (
-        !consumingPeer.router.canConsume({
+        !consumingPeer.getRouter().canConsume({
           producerId: producer.id,
           rtpCapabilities: consumingPeer.getDeviceRTPCapabilities(),
         })
@@ -586,6 +597,39 @@ class SignalNode extends EventEmitter {
     }
   }
 
+  private closeProducersBySource({
+    room,
+    peer,
+    source,
+  }: {
+    room: Room;
+    peer: Peer;
+    source: ProducerSource;
+  }): void {
+    try {
+      const producers = peer.getProducersBySource(source);
+      producers.forEach(async producer => {
+        if (producer.kind === 'audio' && source === 'mic') {
+          const audioLevelObserver = room.audioLevelObservers.get(
+            peer.getRouter().id
+          );
+          if (audioLevelObserver) {
+            audioLevelObserver
+              .removeProducer({
+                producerId: producer.id,
+              })
+              .catch(error => {
+                console.log(error);
+              });
+          }
+        }
+        producer.close();
+      });
+    } catch (error) {
+      console.error('closeProducersBySource fialed ', { error });
+    }
+  }
+
   // Action handlers for different message types
   private actionHandlers: {
     [key in Actions]?: (
@@ -642,7 +686,7 @@ class SignalNode extends EventEmitter {
       }
     },
 
-    [Actions.Close]: async args => {
+    [Actions.ClosePeer]: async args => {
       try {
         const data = ValidationSchema.roomIdPeerId.parse(args);
         const { roomId, peerId } = data;
@@ -668,11 +712,11 @@ class SignalNode extends EventEmitter {
           throw 'Failed to create webrtc transport: Peer/room not found';
 
         const producerTransport = await this.createTransport(
-          peer.router,
+          peer.getRouter(),
           'producer'
         );
         const consumerTransport = await this.createTransport(
-          peer.router,
+          peer.getRouter(),
           'consumer'
         );
 
@@ -699,6 +743,23 @@ class SignalNode extends EventEmitter {
       } catch (error) {
         console.log(error);
         this.sendError(Actions.CreatePeer, requestId as string, error);
+      }
+    },
+
+    [Actions.ConnectWebrtcTransports]: async args => {
+      try {
+        const data = ValidationSchema.connectWebRtcTransport.parse(args);
+        const { roomId, peerId, transportId, dtlsParameters } = data;
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+
+        if (!peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+        const transport = peer.getTransport(transportId);
+        if (!transport) throw 'Transport was not found';
+        transport.connect({ dtlsParameters });
+      } catch (error) {
+        console.log(error);
       }
     },
 
@@ -731,22 +792,96 @@ class SignalNode extends EventEmitter {
         });
 
         // create consumer from producer in connected media
-        const mediaNodes = room.getMediaNodes();
-        for (const mediaNode of mediaNodes) {
-          const producers = mediaNode.getProducers();
-          for (const producer of producers) {
-            this.createConsumer({
-              consumingPeer: peer,
-              producer: producer,
-              room,
-              producerPeerId: producer.appData.peerId as string,
-            }).catch(error => {
-              console.error('create pipeConsumer fialed', { error });
-            });
-          }
-        }
+        const medianodes = room.getMediaNodes();
+        medianodes.forEach(medianode => {
+          const producers = medianode.getProducers();
+          producers.forEach(producer => {
+            room
+              .createPipeConsumer({
+                consumingMediaNode: medianode,
+                producer: producer,
+                producerPeerId: producer.appData.peerId as string,
+              })
+              .catch(error => {
+                console.error('create pipeConsumer fialed', { error });
+              });
+          });
+        });
       } catch (error) {
         console.log(error);
+      }
+    },
+
+    [Actions.CreateProducer]: async (args, requestId) => {
+      try {
+        if (!requestId) throw 'Request Id requested';
+
+        const data = ValidationSchema.createProducer.parse(args);
+        const { roomId, peerId, rtpParameters, kind, transportId, appData } =
+          data;
+
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+        if (!room || !peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+
+        const source = appData.source as ProducerSource;
+        this.closeProducersBySource({ room, peer, source });
+
+        const transport = peer.getTransport(transportId);
+        if (!transport) throw 'Transport not found';
+        const producer = await transport.produce({
+          kind,
+          rtpParameters,
+          appData: { ...appData, peerId },
+        });
+        peer.addProducer(producer);
+
+        this.sendResponse(Actions.CreateProducer, requestId, {
+          producerId: producer.id,
+        });
+
+        // Pipe Producer From This Router to other routers
+        const routersToPipeTo = room.getRoutersToPipeTo(peer.getRouter());
+        routersToPipeTo.forEach(router => {
+          peer
+            .pipeToRouter({
+              router,
+              producerId: producer.id,
+            })
+            .catch(error => console.log(error));
+        });
+
+        // Create server-side consumer for each existing peers
+        const existingPeers = room.getPeers();
+        existingPeers.forEach(consumingPeer => {
+          if (consumingPeer.id === peerId) return;
+          this.createConsumer({
+            consumingPeer,
+            producer: producer,
+            room,
+            producerPeerId: producer.appData.peerId as string,
+          }).catch(error => {
+            console.error('create pipeConsumer fialed', { error });
+          });
+        });
+
+        // create PipeConsumer for all connected MediaNode
+        const medianodes = room.getMediaNodes();
+        medianodes.forEach(medianode => {
+          room
+            .createPipeConsumer({
+              producer,
+              producerPeerId: peer.id,
+              consumingMediaNode: medianode,
+            })
+            .catch(error => {
+              console.error('newPipeconsumer createPipeConsumer failed', error);
+            });
+        });
+      } catch (error) {
+        console.log(error);
+        this.sendError(Actions.CreateProducer, requestId as string, error);
       }
     },
   };

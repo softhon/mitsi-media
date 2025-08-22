@@ -1,4 +1,5 @@
 import { types as mediasoupTypes } from 'mediasoup';
+import { MessageResponse } from '../protos/gen/mediaSignalingPackage/MessageResponse';
 
 export type ProducerSource = 'mic' | 'camera' | 'screen' | 'screenAudio';
 
@@ -164,5 +165,10 @@ export enum ConnectionState {
 }
 
 export type AppDataWithRouterId = mediasoupTypes.AppData & { routerId: string };
+
+export interface PendingRequest {
+  resolve: (response: MessageResponse) => void;
+  reject: (error: Error) => void;
+}
 
 // WorkerData, RouterData, TransportData, ConsumerData, Producer
