@@ -1,38 +1,22 @@
 import EventEmitter from 'events';
 import * as grpc from '@grpc/grpc-js';
+import { types as mediasoupTypes } from 'mediasoup';
 
-import { MediaSignalingActions as MSA } from '../types/actions';
+import { Actions } from '../types/actions';
 import { MessageRequest } from '../protos/gen/mediaSignalingPackage/MessageRequest';
 import { MessageResponse } from '../protos/gen/mediaSignalingPackage/MessageResponse';
 import { grpcServer } from '../servers/grpc-server';
 import { mediaSoupServer } from '../servers/mediasoup-server';
-
-enum ConnectionState {
-  CONNECTING = 'CONNECTING',
-  CONNECTED = 'CONNECTED',
-  DISCONNECTING = 'DISCONNECTING',
-  DISCONNECTED = 'DISCONNECTED',
-  ERROR = 'ERROR',
-}
-
-interface ConnectionMetrics {
-  connectedAt: number;
-  lastActivity: number;
-  lastHeartbeat: number;
-  messagesSent: number;
-  messagesReceived: number;
-  errors: number;
-  heartbeatsReceived: number;
-  heartbeatsMissed: number;
-}
-
-interface MessageQueueItem {
-  action: MSA;
-  args?: { [key: string]: unknown };
-  timestamp: number;
-  retries: number;
-  id: string;
-}
+import { ValidationSchema } from '../lib/schema';
+import Room from './room';
+import Peer from './peer';
+import {
+  ConnectionState,
+  PendingRequest,
+  ProducerSource,
+  TransportKind,
+} from '../types';
+import { parseArguments as parseArguments } from '../lib/utils';
 
 class SignalNode extends EventEmitter {
   id: string;
@@ -40,16 +24,11 @@ class SignalNode extends EventEmitter {
   call: grpc.ServerDuplexStream<MessageRequest, MessageResponse>;
   metadata: grpc.Metadata;
   private connectionState: ConnectionState;
-  private metrics: ConnectionMetrics;
+  private lastHeartbeat: number;
   private heartbeatInterval?: NodeJS.Timeout;
-  private messageQueue: MessageQueueItem[] = [];
-  private maxQueueSize: number = 100;
-  private messageTimeout: number = 30000;
   private heartbeatTimeout: number = 60000;
-  private maxConsecutiveErrors: number = 5;
-  private consecutiveErrors: number = 0;
   private isShuttingDown: boolean = false;
-  private pendingRequests: Map<string, (response: MessageResponse) => void>;
+  private pendingRequests: Map<string, PendingRequest>;
 
   static signalNodes = new Map<string, SignalNode>();
 
@@ -68,26 +47,13 @@ class SignalNode extends EventEmitter {
     this.connectionId = connectionId || this.generateConnectionId();
     this.call = call;
     this.metadata = call.metadata;
-    this.connectionState = ConnectionState.CONNECTING;
+    this.connectionState = ConnectionState.Connecting;
     this.pendingRequests = new Map();
 
-    const now = Date.now();
-    this.metrics = {
-      connectedAt: now,
-      lastActivity: now,
-      lastHeartbeat: now,
-      messagesSent: 0,
-      messagesReceived: 0,
-      errors: 0,
-      heartbeatsReceived: 0,
-      heartbeatsMissed: 0,
-    };
+    this.lastHeartbeat = Date.now();
 
     // Add to static collection with duplicate handling
     if (SignalNode.signalNodes.has(id)) {
-      console.warn(
-        `⚠️  SignalNode with ID ${id} already exists, removing old instance`
-      );
       const oldNode = SignalNode.signalNodes.get(id);
       oldNode?.forceDisconnect('duplicate_connection');
     }
@@ -97,7 +63,7 @@ class SignalNode extends EventEmitter {
     this.initialize();
 
     console.log(
-      `✅ New SignalNode created - ID: ${this.id}, Connection: ${this.connectionId}`
+      `New SignalNode created - ID: ${this.id}, Connection: ${this.connectionId}`
     );
   }
 
@@ -105,10 +71,10 @@ class SignalNode extends EventEmitter {
     try {
       this.setupMessageHandlers();
       this.setupHeartbeat();
-      this.setState(ConnectionState.CONNECTED);
+      this.setState(ConnectionState.Connected);
       this.sendConnectionConfirmation();
     } catch (error) {
-      console.error(`❌ Error initializing SignalNode ${this.id}:`, error);
+      console.error(`Error initializing SignalNode ${this.id}:`, error);
       this.handleError(error as Error, 'initialization_error');
     }
   }
@@ -121,51 +87,12 @@ class SignalNode extends EventEmitter {
     if (this.connectionState !== newState) {
       const oldState = this.connectionState;
       this.connectionState = newState;
-      console.log(`📡 SignalNode ${this.id} state: ${oldState} -> ${newState}`);
+      console.log(`SignalNode ${this.id} state: ${oldState} -> ${newState}`);
       this.emit('stateChanged', { oldState, newState, nodeId: this.id });
     }
   }
 
-  private setupHeartbeat(): void {
-    this.clearHeartbeat();
-
-    this.heartbeatInterval = setInterval(() => {
-      if (!this.isActive()) {
-        return;
-      }
-
-      const timeSinceLastActivity = Date.now() - this.metrics.lastActivity;
-      // const timeSinceLastHeartbeat = Date.now() - this.metrics.lastHeartbeat;
-
-      // Check for stale connection
-      if (timeSinceLastActivity > this.heartbeatTimeout) {
-        console.warn(
-          `💔 Connection ${this.id} is stale (${timeSinceLastActivity}ms since last activity)`
-        );
-        this.metrics.heartbeatsMissed++;
-
-        if (this.metrics.heartbeatsMissed >= 3) {
-          this.handleError(new Error('Heartbeat timeout'), 'heartbeat_timeout');
-          return;
-        }
-      }
-
-      // Send heartbeat
-      try {
-        if (
-          this.sendMessage(MSA.Heartbeat, {
-            timestamp: Date.now(),
-            connectionId: this.connectionId,
-          })
-        ) {
-          this.metrics.lastHeartbeat = Date.now();
-        }
-      } catch (error) {
-        console.error(`❌ Error sending heartbeat to ${this.id}:`, error);
-        this.handleError(error as Error, 'heartbeat_error');
-      }
-    }, 30000); // Send heartbeat every 30 seconds
-  }
+  private setupHeartbeat(): void {}
 
   private clearHeartbeat(): void {
     if (this.heartbeatInterval) {
@@ -186,23 +113,23 @@ class SignalNode extends EventEmitter {
 
     // Handle connection events
     this.call.on('end', () => {
-      console.log(`📤 Client ${this.id} ended the connection gracefully`);
+      console.log(`client ${this.id} ended the connection gracefully`);
       this.handleClientDisconnection('client_ended');
     });
 
     this.call.on('cancelled', () => {
-      console.log(`🚫 Client ${this.id} cancelled the connection`);
+      console.log(`Client ${this.id} cancelled the connection`);
       this.handleClientDisconnection('cancelled');
     });
 
     this.call.on('error', (error: Error) => {
-      console.error(`💥 Stream error for client ${this.id}:`, error);
+      console.error(`Stream error for client ${this.id}:`, error);
       this.handleError(error, 'stream_error');
     });
 
     this.call.on('close', () => {
-      console.log(`🔌 Stream closed for client ${this.id}`);
-      if (this.connectionState === ConnectionState.CONNECTED) {
+      console.log(`Stream closed for client ${this.id}`);
+      if (this.connectionState === ConnectionState.Connected) {
         this.handleClientDisconnection('stream_closed');
       }
     });
@@ -210,62 +137,45 @@ class SignalNode extends EventEmitter {
 
   private handleIncomingMessage(message: MessageRequest): void {
     try {
-      this.metrics.messagesReceived++;
-      this.metrics.lastActivity = Date.now();
-      this.consecutiveErrors = 0; // Reset error count on successful message
-
       const { action, args, requestId } = message;
+      if (!action) return;
+
+      const parsedArgs = parseArguments(args);
 
       if (requestId?.length) {
-        const resolver = this.pendingRequests.get(requestId);
-        if (resolver) {
+        console.log('Got a request expecting response');
+        const pendingRequest = this.pendingRequests.get(requestId);
+        if (pendingRequest) {
           // this means this instance initiated this request for response .
           // resolve and return
-          resolver(message);
+          if (parsedArgs.status === 'error') {
+            console.log(action, 'pending request Returned error');
+            pendingRequest.reject(parsedArgs.error as Error);
+          } else {
+            console.log(action, 'pending request Returned success');
+            pendingRequest.resolve(message);
+          }
           this.pendingRequests.delete(requestId);
           return;
         }
       }
 
-      if (!action) {
-        console.warn(`⚠️  Received message without action from ${this.id}`);
-        this.handleError(
-          new Error('Missing action in message'),
-          'protocol_error'
-        );
-        return;
-      }
-
-      console.log(`📨 Received message from ${this.id}: ${action}`);
-
-      let parsedArgs: { [key: string]: unknown } = {};
-      if (args) {
-        try {
-          parsedArgs = JSON.parse(args);
-        } catch (parseError) {
-          console.error(
-            `❌ Failed to parse message args from ${this.id}:`,
-            parseError
-          );
-          this.handleError(parseError as Error, 'parse_error');
-          return;
-        }
-      }
+      console.log(`Received message from ${this.id}: ${action}`);
 
       // Handle special system messages
-      if (action === MSA.Heartbeat) {
+      if (action === Actions.Heartbeat) {
         this.handleHeartbeat(parsedArgs);
         return;
       }
 
       // Find and execute handler
-      const handler = this.actionHandlers[action as MSA];
+      const handler = this.actionHandlers[action as Actions];
       if (handler) {
         try {
-          handler(parsedArgs);
+          handler(parsedArgs, requestId);
         } catch (handlerError) {
           console.error(
-            `❌ Error in handler for action ${action} from ${this.id}:`,
+            ` Error in handler for action ${action} from ${this.id}:`,
             handlerError
           );
           this.handleError(handlerError as Error, 'handler_error');
@@ -286,72 +196,43 @@ class SignalNode extends EventEmitter {
         timestamp: Date.now(),
       });
     } catch (error) {
-      console.error(`💥 Error handling message from ${this.id}:`, error);
+      console.error(`Error handling message from ${this.id}:`, error);
       this.handleError(error as Error, 'message_handling_error');
     }
   }
 
   private handleHeartbeat(args: { [key: string]: unknown }): void {
     console.log(args);
-    this.metrics.heartbeatsReceived++;
-    this.metrics.heartbeatsMissed = 0; // Reset missed heartbeats
 
     // Respond to heartbeat
-    this.sendMessage(MSA.HeartbeatAck, {
+    this.sendMessage(Actions.HeartbeatAck, {
       timestamp: Date.now(),
       connectionId: this.connectionId,
-      metrics: {
-        messagesSent: this.metrics.messagesSent,
-        messagesReceived: this.metrics.messagesReceived,
-        uptime: Date.now() - this.metrics.connectedAt,
-      },
     });
   }
 
   private handleError(error: Error, context: string): void {
-    this.metrics.errors++;
-    this.consecutiveErrors++;
-
-    console.error(
-      `💥 SignalNode ${this.id} error [${context}]:`,
-      error.message
-    );
+    console.error(`SignalNode ${this.id} error [${context}]:`, error.message);
 
     this.emit('error', {
       nodeId: this.id,
       error,
       context,
-      consecutiveErrors: this.consecutiveErrors,
       timestamp: Date.now(),
     });
-
-    // Disconnect if too many consecutive errors
-    if (this.consecutiveErrors >= this.maxConsecutiveErrors) {
-      console.error(
-        `🚫 Too many consecutive errors (${this.consecutiveErrors}) for ${this.id}, disconnecting`
-      );
-      this.handleClientDisconnection('too_many_errors', error);
-    }
   }
 
   private handleClientDisconnection(reason: string, error?: Error): void {
     if (this.isShuttingDown) {
       return; // Already handled
     }
-
-    console.log(
-      `🔌 Client ${this.id} disconnected (${reason})`,
-      error ? `: ${error.message}` : ''
-    );
-
-    this.setState(ConnectionState.DISCONNECTED);
+    this.setState(ConnectionState.Disconnected);
     this.cleanup();
 
     this.emit('disconnected', {
       nodeId: this.id,
       reason,
       error,
-      metrics: this.getMetrics(),
       timestamp: Date.now(),
     });
   }
@@ -362,21 +243,18 @@ class SignalNode extends EventEmitter {
     // Clear heartbeat
     this.clearHeartbeat();
 
-    // Clear message queue
-    this.messageQueue = [];
-
     // Remove from static collection
     SignalNode.signalNodes.delete(this.id);
 
     // Remove all listeners
     this.removeAllListeners();
 
-    console.log(`🧹 Cleaned up SignalNode ${this.id}`);
+    console.log(`Cleaned up SignalNode ${this.id}`);
   }
 
   private async sendConnectionConfirmation(): Promise<void> {
     const rtpCapabilities = await mediaSoupServer.getRouterRtpCapabilities();
-    this.sendMessage(MSA.Connected, {
+    this.sendMessage(Actions.Connected, {
       status: 'success',
       nodeId: this.id,
       connectionId: this.connectionId,
@@ -388,7 +266,7 @@ class SignalNode extends EventEmitter {
   }
 
   // Public methods
-  sendMessage(action: MSA, args?: { [key: string]: unknown }): boolean {
+  sendMessage(action: Actions, args?: { [key: string]: unknown }): boolean {
     if (!this.isActive()) {
       console.warn(`⚠️  Cannot send message to ${this.id}: node is inactive`);
       return false;
@@ -408,22 +286,20 @@ class SignalNode extends EventEmitter {
 
       this.call.write(message);
 
-      this.metrics.messagesSent++;
-      this.metrics.lastActivity = Date.now();
       grpcServer.incrementMessageStats(1, 0);
 
-      console.log(`📤 Sent ${action} to ${this.id} (${messageId})`);
+      console.log(`Sent ${action} to ${this.id} (${messageId})`);
 
       return true;
     } catch (error) {
-      console.error(`❌ Error sending message to ${this.id}:`, error);
+      console.error(`Error sending message to ${this.id}:`, error);
       this.handleError(error as Error, 'send_message_error');
       return false;
     }
   }
 
   async sendMessageForResponse(
-    action: MSA,
+    action: Actions,
     args?: { [key: string]: unknown }
   ): Promise<MessageResponse | null> {
     if (!this.call) {
@@ -441,90 +317,89 @@ class SignalNode extends EventEmitter {
         requestId,
       };
 
-      return new Promise<MessageResponse>(resolve => {
+      return new Promise<MessageResponse>((resolve, reject) => {
         if (this.call) {
-          this.pendingRequests.set(requestId, resolve); // save resolve
+          this.pendingRequests.set(requestId, {
+            resolve,
+            reject,
+          }); // save resolve
           this.call.write(message);
         }
       });
     } catch (error) {
-      console.error(`❌ Error sending message to MediaNode ${this.id}:`, error);
+      console.error(`Error sending message to MediaNode ${this.id}:`, error);
       throw error;
     }
   }
-
-  queueMessage(action: MSA, args?: { [key: string]: unknown }): boolean {
-    if (this.messageQueue.length >= this.maxQueueSize) {
+  sendResponse(
+    action: Actions,
+    requestId: string,
+    response: { [key: string]: unknown }
+  ): void {
+    if (!this.call) {
       console.warn(
-        `⚠️  Message queue full for ${this.id}, dropping oldest message`
+        `⚠️Cannot send message to MediaNode ${this.id}: not connected`
       );
-      this.messageQueue.shift(); // Remove oldest message
+      return;
     }
 
-    const messageItem: MessageQueueItem = {
-      action,
-      args,
-      timestamp: Date.now(),
-      retries: 0,
-      id: this.generateMessageId(),
-    };
+    try {
+      const message: MessageRequest = {
+        action,
+        requestId,
+        args: JSON.stringify({
+          status: 'success',
+          response,
+        }),
+      };
 
-    this.messageQueue.push(messageItem);
-    console.log(
-      `📝 Queued message ${action} for ${this.id} (queue size: ${this.messageQueue.length})`
-    );
-
-    return true;
+      this.call.write(message);
+    } catch (error) {
+      console.error(`Error sending message to MediaNode ${this.id}:`, error);
+      throw error;
+    }
   }
-
-  flushMessageQueue(): number {
-    if (!this.isActive() || this.messageQueue.length === 0) {
-      return 0;
+  sendError(action: Actions, requestId: string, error: Error | unknown): void {
+    if (!this.call) {
+      console.warn(
+        `⚠️Cannot send message to MediaNode ${this.id}: not connected`
+      );
+      return;
     }
+    try {
+      const message: MessageRequest = {
+        action,
+        requestId,
+        args: JSON.stringify({
+          status: 'error',
+          error,
+        }),
+      };
 
-    let sentCount = 0;
-    const messages = [...this.messageQueue];
-    this.messageQueue = [];
-
-    messages.forEach(messageItem => {
-      if (this.sendMessage(messageItem.action, messageItem.args)) {
-        sentCount++;
-      } else {
-        // Re-queue failed messages if under retry limit
-        if (messageItem.retries < 3) {
-          messageItem.retries++;
-          this.messageQueue.push(messageItem);
-        }
-      }
-    });
-
-    if (sentCount > 0) {
-      console.log(`📤 Flushed ${sentCount} queued messages for ${this.id}`);
+      this.call.write(message);
+    } catch (error) {
+      console.error(`Error sending message to MediaNode ${this.id}:`, error);
+      throw error;
     }
-
-    return sentCount;
   }
 
   async gracefulDisconnect(
     reason: string = 'graceful_shutdown'
   ): Promise<void> {
-    if (this.connectionState === ConnectionState.DISCONNECTED) {
+    if (this.connectionState === ConnectionState.Disconnected) {
       return;
     }
 
     console.log(`👋 Gracefully disconnecting ${this.id} (${reason})`);
-    this.setState(ConnectionState.DISCONNECTING);
+    this.setState(ConnectionState.Disconnecting);
 
     try {
       // Send disconnect notification
-      this.sendMessage(MSA.ServerShutdown, {
+      this.sendMessage(Actions.ServerShutdown, {
         message: 'Server is shutting down',
         reason,
         timestamp: Date.now(),
       });
-
-      // Flush any remaining messages
-      this.flushMessageQueue();
 
       // Wait a bit for messages to be sent
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -544,7 +419,7 @@ class SignalNode extends EventEmitter {
   }
 
   forceDisconnect(reason: string = 'force_disconnect'): void {
-    console.log(`💥 Force disconnecting ${this.id} (${reason})`);
+    console.log(`Force disconnecting ${this.id} (${reason})`);
 
     try {
       if (this.call) {
@@ -560,63 +435,17 @@ class SignalNode extends EventEmitter {
   // Utility methods
   isActive(): boolean {
     return (
-      this.connectionState === ConnectionState.CONNECTED && !this.isShuttingDown
+      this.connectionState === ConnectionState.Connected && !this.isShuttingDown
     );
-  }
-
-  isStale(threshold: number = 300000): boolean {
-    // 5 minutes default
-    return Date.now() - this.metrics.lastActivity > threshold;
-  }
-
-  getMetrics(): ConnectionMetrics {
-    return { ...this.metrics };
   }
 
   getState(): ConnectionState {
     return this.connectionState;
   }
 
-  getUptime(): number {
-    return Date.now() - this.metrics.connectedAt;
-  }
-
-  getQueueSize(): number {
-    return this.messageQueue.length;
-  }
-
   private generateMessageId(): string {
     return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
   }
-
-  // Action handlers for different message types
-  private actionHandlers: {
-    [key in MSA]?: (
-      args: { [key: string]: unknown },
-      requestId?: string
-    ) => void;
-  } = {
-    [MSA.Connected]: args => {
-      console.log(`✅ Connection confirmed from ${this.id}:`, args);
-      this.emit('connectionConfirmed', { nodeId: this.id, args });
-    },
-
-    [MSA.Ping]: (args, requestId) => {
-      console.log('Signal Server Pinged Mediaserver');
-      this.call.write({
-        action: MSA.Pong,
-        args: JSON.stringify(args),
-        requestId,
-      });
-    },
-
-    [MSA.HeartbeatAck]: args => {
-      console.log(`💗 Heartbeat acknowledged by ${this.id}`, args);
-      this.metrics.lastActivity = Date.now();
-    },
-
-    // Add more handlers as needed for your specific actions
-  };
 
   // Static methods for managing all nodes
   static getNodes(): SignalNode[] {
@@ -659,136 +488,466 @@ class SignalNode extends EventEmitter {
     console.log('✅ All signal nodes disconnected');
   }
 
-  static broadcastMessage(
-    action: MSA,
-    args?: { [key: string]: unknown },
-    options?: {
-      excludeIds?: string[];
-      onlyActive?: boolean;
-      queueIfUnavailable?: boolean;
-    }
-  ): { sent: number; queued: number; failed: number } {
-    const opts = {
-      excludeIds: [],
-      onlyActive: true,
-      queueIfUnavailable: false,
-      ...options,
-    };
+  static broadcastMessage(): void {}
 
-    let nodes = Array.from(SignalNode.signalNodes.values());
-
-    // Filter nodes based on options
-    if (opts.excludeIds.length > 0) {
-      nodes = nodes.filter(node => !opts.excludeIds!.includes(node.id));
-    }
-
-    if (opts.onlyActive) {
-      nodes = nodes.filter(node => node.isActive());
-    }
-
-    let sent = 0;
-    let queued = 0;
-    let failed = 0;
-
-    nodes.forEach(node => {
-      if (node.isActive()) {
-        if (node.sendMessage(action, args)) {
-          sent++;
-        } else {
-          failed++;
-        }
-      } else if (opts.queueIfUnavailable) {
-        if (node.queueMessage(action, args)) {
-          queued++;
-        } else {
-          failed++;
-        }
-      } else {
-        failed++;
-      }
+  private async createTransport(
+    router: mediasoupTypes.Router,
+    type: TransportKind = 'consumer'
+  ): Promise<mediasoupTypes.WebRtcTransport> {
+    if (router.appData.webRtcServer) throw 'Webrtc server not found';
+    const webRtcServer = router.appData
+      .webRtcServer as mediasoupTypes.WebRtcServer;
+    const transport = await router.createWebRtcTransport({
+      webRtcServer,
+      appData: {
+        isConsumer: type === 'consumer',
+        isProducer: type === 'producer',
+      },
     });
 
-    console.log(
-      `📢 Broadcast ${action}: ${sent} sent, ${queued} queued, ${failed} failed`
-    );
-    return { sent, queued, failed };
+    return transport;
   }
 
-  static getConnectionStats(): {
-    total: number;
-    active: number;
-    connecting: number;
-    disconnecting: number;
-    disconnected: number;
-    error: number;
-  } {
-    const nodes = Array.from(SignalNode.signalNodes.values());
+  private async createConsumer({
+    consumingPeer,
+    producerPeerId,
+    producer,
+    room,
+  }: {
+    consumingPeer: Peer;
+    producerPeerId: string;
+    producer: mediasoupTypes.Producer;
+    room: Room;
+  }): Promise<void> {
+    try {
+      if (
+        !consumingPeer.getRouter().canConsume({
+          producerId: producer.id,
+          rtpCapabilities: consumingPeer.getDeviceRTPCapabilities(),
+        })
+      ) {
+        return console.log(`Can not consmer with producerId - ${producer.id}`);
+      }
+      // GET CONSUMER PEER CONSUMER TRANSPORT
+      const transport = consumingPeer
+        .getTransports()
+        .find(tp => tp.appData.isConsumer === true);
 
-    return {
-      total: nodes.length,
-      active: nodes.filter(n => n.connectionState === ConnectionState.CONNECTED)
-        .length,
-      connecting: nodes.filter(
-        n => n.connectionState === ConnectionState.CONNECTING
-      ).length,
-      disconnecting: nodes.filter(
-        n => n.connectionState === ConnectionState.DISCONNECTING
-      ).length,
-      disconnected: nodes.filter(
-        n => n.connectionState === ConnectionState.DISCONNECTED
-      ).length,
-      error: nodes.filter(n => n.connectionState === ConnectionState.ERROR)
-        .length,
-    };
+      if (!transport) return;
+
+      const consumer = await transport.consume({
+        producerId: producer.id,
+        rtpCapabilities: consumingPeer.getDeviceRTPCapabilities(),
+        paused: true,
+        appData: producer.appData,
+      });
+      // Find out on this
+      if (producer.kind === 'audio' && producer.appData.source === 'mic')
+        await consumer.setPriority(255);
+
+      consumingPeer.addConsumer(consumer);
+
+      const options = {
+        peerId: consumingPeer.id,
+        peerType: consumingPeer.type,
+        meetingId: room.roomId,
+        consumerId: consumer.id,
+        producerPeerId,
+        producerSource: producer.appData.source,
+        fromProducer: true,
+      };
+
+      consumer.observer.on('close', () => {
+        consumingPeer.removeConsumer(consumer.id);
+        consumingPeer.sendMessage(Actions.CloseConsumer, options);
+      });
+
+      consumer.on('producerpause', () => {
+        consumingPeer.sendMessage(Actions.PauseConsumer, options);
+      });
+
+      consumer.on('producerresume', () => {
+        consumingPeer.sendMessage(Actions.ResumeConsumer, options);
+      });
+
+      consumingPeer.sendMessageForResponse(Actions.CreateConsumer, {
+        peerId: consumingPeer.id,
+        peerType: consumingPeer.type,
+        roomId: room.roomId,
+        producerPeerId: producerPeerId,
+        producerId: producer.id,
+        transportId: transport.id,
+        producerSource: producer.appData.source,
+        id: consumer.id,
+        kind: consumer.kind,
+        rtpParameters: consumer.rtpParameters,
+        type: consumer.type,
+        producerPaused: consumer.producerPaused,
+
+        appData: {
+          ...producer.appData,
+          producerPeerId,
+          transportId: transport.id,
+        },
+      });
+      console.log('Create consumer ---', producer.appData.source);
+    } catch (error) {
+      // callback('createConsumersForExistingPeers fialed')
+      console.error('createConsumer fialed ', { error });
+    }
   }
 
-  static getDetailedMetrics(): {
-    totalNodes: number;
-    activeNodes: number;
-    totalMessagesSent: number;
-    totalMessagesReceived: number;
-    totalErrors: number;
-    avgUptime: number;
-    nodes: Array<{
-      id: string;
-      connectionId: string;
-      state: ConnectionState;
-      metrics: ConnectionMetrics;
-      uptime: number;
-      queueSize: number;
-    }>;
-  } {
-    const nodes = Array.from(SignalNode.signalNodes.values());
-    const activeNodes = nodes.filter(n => n.isActive());
+  // Action handlers for different message types
+  private actionHandlers: {
+    [key in Actions]?: (
+      args: { [key: string]: unknown },
+      requestId?: string
+    ) => void;
+  } = {
+    [Actions.Connected]: args => {
+      console.log(`✅ Connection confirmed from ${this.id}:`, args);
+      this.emit('connectionConfirmed', { nodeId: this.id, args });
+    },
 
-    return {
-      totalNodes: nodes.length,
-      activeNodes: activeNodes.length,
-      totalMessagesSent: nodes.reduce(
-        (sum, node) => sum + node.metrics.messagesSent,
-        0
-      ),
-      totalMessagesReceived: nodes.reduce(
-        (sum, node) => sum + node.metrics.messagesReceived,
-        0
-      ),
-      totalErrors: nodes.reduce((sum, node) => sum + node.metrics.errors, 0),
-      avgUptime:
-        nodes.length > 0
-          ? nodes.reduce((sum, node) => sum + node.getUptime(), 0) /
-            nodes.length
-          : 0,
-      nodes: nodes.map(node => ({
-        id: node.id,
-        connectionId: node.connectionId,
-        state: node.connectionState,
-        metrics: node.getMetrics(),
-        uptime: node.getUptime(),
-        queueSize: node.getQueueSize(),
-      })),
-    };
-  }
+    [Actions.Ping]: (args, requestId) => {
+      console.log('Signal Server Pinged Mediaserver requestId', requestId);
+      this.call.write({
+        action: Actions.Pong,
+        args: JSON.stringify(args),
+        requestId,
+      });
+    },
+
+    [Actions.HeartbeatAck]: args => {
+      console.log(`💗 Heartbeat acknowledged by ${this.id}`, args);
+    },
+
+    // Add more handlers as needed for your specific actions
+
+    [Actions.CreatePeer]: async (args, requestId) => {
+      try {
+        if (!requestId) throw 'Request Id requested';
+
+        const data = ValidationSchema.createPeer.parse(args);
+        const { roomId, peerId, peerType, rtpCapabilities } = data;
+        const room = Room.getRoom(roomId) ?? (await Room.create(roomId));
+
+        const router = await room.assignRouterToPeer();
+        if (!router) throw 'Router not assigned to peer';
+        const peer = new Peer({
+          id: peerId,
+          roomId,
+          router,
+          rtpCapabilities,
+          signalnode: this,
+          type: peerType,
+        });
+
+        room.addPeer(peer);
+        this.sendResponse(Actions.CreatePeer, requestId, {
+          routerId: router.id,
+        });
+      } catch (error) {
+        console.log(error);
+        this.sendError(Actions.CreatePeer, requestId as string, error);
+      }
+    },
+
+    [Actions.ClosePeer]: async args => {
+      try {
+        const data = ValidationSchema.roomIdPeerId.parse(args);
+        const { roomId, peerId } = data;
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+        peer?.close();
+
+        console.log('Close Peer');
+      } catch (error) {
+        console.log(error);
+      }
+    },
+
+    [Actions.CreateWebrtcTransports]: async (args, requestId) => {
+      try {
+        if (!requestId) throw 'Request Id requested';
+        const data = ValidationSchema.roomIdPeerId.parse(args);
+        const { roomId, peerId } = data;
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+
+        if (!peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+
+        const producerTransport = await this.createTransport(
+          peer.getRouter(),
+          'producer'
+        );
+        const consumerTransport = await this.createTransport(
+          peer.getRouter(),
+          'consumer'
+        );
+
+        peer.addTransport(producerTransport);
+        peer.addTransport(consumerTransport);
+
+        this.sendResponse(Actions.CreateWebrtcTransports, requestId, {
+          producerTransportParams: {
+            id: producerTransport.id,
+            iceParameters: producerTransport.iceParameters,
+            iceCandidates: producerTransport.iceCandidates,
+            dtlsParameters: producerTransport.dtlsParameters,
+            sctpParameters: producerTransport.sctpParameters,
+          },
+          consumerTransportParams: {
+            id: consumerTransport.id,
+            iceParameters: consumerTransport.iceParameters,
+            iceCandidates: consumerTransport.iceCandidates,
+            dtlsParameters: consumerTransport.dtlsParameters,
+            sctpParameters: consumerTransport.sctpParameters,
+          },
+        });
+        console.log('Close Peer');
+      } catch (error) {
+        console.log(error);
+        this.sendError(Actions.CreatePeer, requestId as string, error);
+      }
+    },
+
+    [Actions.ConnectWebrtcTransports]: async args => {
+      try {
+        const data = ValidationSchema.connectWebRtcTransport.parse(args);
+        const { roomId, peerId, transportId, dtlsParameters } = data;
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+
+        if (!peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+        const transport = peer.getTransport(transportId);
+        if (!transport) throw 'Transport was not found';
+        transport.connect({ dtlsParameters });
+      } catch (error) {
+        console.log(error);
+      }
+    },
+
+    [Actions.CreateConsumersOfAllProducers]: async args => {
+      try {
+        const data = ValidationSchema.roomIdPeerId.parse(args);
+        const { roomId, peerId } = data;
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+
+        if (!room || !peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+        const existingPeers = room.getPeers();
+
+        // create consumer from producers of existing peers
+        existingPeers.forEach(existingPeer => {
+          // ingore the peer that requested this
+          if (existingPeer.id === peerId) return;
+          const peerProducers = existingPeer.getProducers();
+          peerProducers.forEach(producer => {
+            this.createConsumer({
+              consumingPeer: peer,
+              producerPeerId: existingPeer.id,
+              producer: producer,
+              room,
+            }).catch(error => {
+              console.log(error);
+            });
+          });
+        });
+
+        // create consumer from producer in connected media
+        const medianodes = room.getMediaNodes();
+        medianodes.forEach(medianode => {
+          const producers = medianode.getProducers();
+          producers.forEach(producer => {
+            room
+              .createPipeConsumer({
+                consumingMediaNode: medianode,
+                producer: producer,
+                producerPeerId: producer.appData.peerId as string,
+              })
+              .catch(error => {
+                console.error('create pipeConsumer fialed', { error });
+              });
+          });
+        });
+      } catch (error) {
+        console.log(error);
+      }
+    },
+
+    [Actions.CreateProducer]: async (args, requestId) => {
+      try {
+        if (!requestId) throw 'Request Id requested';
+
+        const data = ValidationSchema.createProducer.parse(args);
+        const { roomId, peerId, rtpParameters, kind, transportId, appData } =
+          data;
+
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+        if (!room || !peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+
+        const source = appData.source as ProducerSource;
+        peer.closeProducersBySource({ room, source });
+
+        const transport = peer.getTransport(transportId);
+        if (!transport) throw 'Transport not found';
+        const producer = await transport.produce({
+          kind,
+          rtpParameters,
+          appData: { ...appData, peerId },
+        });
+        peer.addProducer(producer);
+
+        this.sendResponse(Actions.CreateProducer, requestId, {
+          producerId: producer.id,
+        });
+
+        // Pipe Producer From This Router to other routers
+        const routersToPipeTo = room.getRoutersToPipeTo(peer.getRouter());
+        routersToPipeTo.forEach(router => {
+          peer
+            .pipeToRouter({
+              router,
+              producerId: producer.id,
+            })
+            .catch(error => console.log(error));
+        });
+
+        // Create server-side consumer for each existing peers
+        const existingPeers = room.getPeers();
+        existingPeers.forEach(consumingPeer => {
+          if (consumingPeer.id === peerId) return;
+          this.createConsumer({
+            consumingPeer,
+            producer: producer,
+            room,
+            producerPeerId: producer.appData.peerId as string,
+          }).catch(error => {
+            console.error('create pipeConsumer fialed', { error });
+          });
+        });
+
+        // create PipeConsumer for all connected MediaNode
+        const medianodes = room.getMediaNodes();
+        medianodes.forEach(medianode => {
+          room
+            .createPipeConsumer({
+              producer,
+              producerPeerId: peer.id,
+              consumingMediaNode: medianode,
+            })
+            .catch(error => {
+              console.error('newPipeconsumer createPipeConsumer failed', error);
+            });
+        });
+
+        if (producer.kind === 'audio' && appData.source === 'mic') {
+          const audioLevelObserver = room.audioLevelObservers.get(
+            peer.getRouter().id
+          );
+          if (audioLevelObserver) {
+            audioLevelObserver.addProducer({ producerId: producer.id });
+          }
+        }
+      } catch (error) {
+        console.log(error);
+        this.sendError(Actions.CreateProducer, requestId as string, error);
+      }
+    },
+
+    [Actions.CloseProducer]: args => {
+      try {
+        const data = ValidationSchema.manageProducer.parse(args);
+        const { peerId, roomId, source } = data;
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+
+        if (!room || !peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+
+        peer.closeProducersBySource({ room, source });
+      } catch (error) {
+        console.log(error);
+      }
+    },
+
+    [Actions.PauseProducer]: args => {
+      try {
+        const data = ValidationSchema.manageProducer.parse(args);
+        const { peerId, roomId, source } = data;
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+
+        if (!room || !peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+
+        const producers = peer.getProducersBySource(source);
+        producers.forEach(producer => {
+          producer.pause().catch(error => {
+            console.log(error);
+          });
+        });
+      } catch (error) {
+        console.log(error);
+      }
+    },
+
+    [Actions.ResumeProducer]: args => {
+      try {
+        const data = ValidationSchema.manageProducer.parse(args);
+        const { peerId, roomId, producerId } = data;
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+
+        if (!room || !peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+
+        const producer = peer.getProducer(producerId);
+        producer?.resume();
+      } catch (error) {
+        console.log(error);
+      }
+    },
+
+    [Actions.PauseConsumer]: args => {
+      console.log('PauseConsumer', args);
+    },
+
+    [Actions.ResumeConsumer]: args => {
+      console.log('ResumeConsumer', args);
+    },
+
+    [Actions.RestartIce]: async (args, requestId) => {
+      try {
+        if (!requestId) throw 'Require request id';
+        const data = ValidationSchema.restartIce.parse(args);
+        const { roomId, peerId, transportId } = data;
+
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+
+        if (!room || !peer)
+          throw 'Failed to create webrtc transport: Peer/room not found';
+        const transport = peer.getTransport(transportId);
+        if (!transport) return;
+        const iceParameters = await transport.restartIce();
+        this.sendResponse(Actions.RestartIce, requestId, {
+          iceParameters,
+        });
+      } catch (error) {
+        console.log(error);
+        this.sendError(Actions.RestartIce, requestId as string, error);
+      }
+    },
+  };
 }
 
 export default SignalNode;
+
 export { ConnectionState, SignalNode };

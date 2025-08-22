@@ -42,7 +42,7 @@ let medianodeData: MediaNodeData;
 const shutdown = async (): Promise<void> => {
   try {
     await redisServer.sRem(
-      getRedisKey['medianodesRunning'](),
+      getRedisKey['medianodes'](),
       JSON.stringify(medianodeData)
     );
     console.log('Delete medianode');

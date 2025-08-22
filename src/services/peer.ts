@@ -2,20 +2,24 @@ import EventEmitter from 'events';
 import { types as mediasoupTypes } from 'mediasoup';
 import { PeerType, ProducerSource } from '../types';
 import { mediaSoupServer } from '../servers/mediasoup-server';
+import SignalNode from './signalnode';
+import { Actions } from '../types/actions';
+import { MessageResponse } from '../protos/gen/mediaSignalingPackage/MessageResponse';
+import Room from './room';
 
 class Peer extends EventEmitter {
   id: string;
   roomId: string;
   closed: boolean;
-  signalNodeId: string;
+  private signalnode: SignalNode;
   type: PeerType;
 
-  rtpCapabilities: mediasoupTypes.RtpCapabilities;
-  transports: Map<string, mediasoupTypes.WebRtcTransport>;
-  producers: Map<string, mediasoupTypes.Producer>;
-  consumers: Map<string, mediasoupTypes.Consumer>;
+  private deviceRtpCapabilities: mediasoupTypes.RtpCapabilities;
+  private transports: Map<string, mediasoupTypes.WebRtcTransport>;
+  private producers: Map<string, mediasoupTypes.Producer>;
+  private consumers: Map<string, mediasoupTypes.Consumer>;
 
-  router: mediasoupTypes.Router;
+  private router: mediasoupTypes.Router;
   workerPid: number;
 
   static peers = new Map<string, Peer>();
@@ -25,27 +29,27 @@ class Peer extends EventEmitter {
     roomId,
     router,
     rtpCapabilities,
-    signalNodeId,
+    signalnode,
     type,
   }: {
     id: string;
     roomId: string;
     router: mediasoupTypes.Router;
     rtpCapabilities: mediasoupTypes.RtpCapabilities;
-    signalNodeId: string;
+    signalnode: SignalNode;
     type: PeerType;
   }) {
     super();
     this.id = id;
     this.roomId = roomId;
     this.closed = false;
-    this.rtpCapabilities = rtpCapabilities;
+    this.deviceRtpCapabilities = rtpCapabilities;
     this.router = router;
     this.workerPid = (router.appData.worker as mediasoupTypes.Worker).pid;
     this.transports = new Map();
     this.producers = new Map();
     this.consumers = new Map();
-    this.signalNodeId = signalNodeId;
+    this.signalnode = signalnode;
     this.type = type;
     // increment worker load
   }
@@ -73,6 +77,35 @@ class Peer extends EventEmitter {
     console.info('Peer closed');
   }
 
+  getDeviceRTPCapabilities(): mediasoupTypes.RtpCapabilities {
+    return this.deviceRtpCapabilities;
+  }
+  getSignalnode(): SignalNode {
+    return this.signalnode;
+  }
+
+  sendMessage(action: Actions, args?: { [key: string]: unknown }): void {
+    this.signalnode.sendMessage(action, args);
+  }
+
+  async sendMessageForResponse(
+    action: Actions,
+    args?: { [key: string]: unknown }
+  ): Promise<MessageResponse | null> {
+    return this.signalnode.sendMessageForResponse(action, args);
+  }
+
+  sendResponse(
+    action: Actions,
+    requestId: string,
+    response: { [key: string]: unknown }
+  ): void {
+    this.signalnode.sendResponse(action, requestId, response);
+  }
+
+  sendError(action: Actions, requestId: string, error: Error | unknown): void {
+    this.signalnode.sendError(action, requestId, error);
+  }
   // transport methods
   addTransport(transport: mediasoupTypes.WebRtcTransport): void {
     this.transports.set(transport.id, transport);
@@ -81,8 +114,29 @@ class Peer extends EventEmitter {
     });
   }
 
+  async pipeToRouter({
+    router,
+    producerId,
+  }: {
+    router: mediasoupTypes.Router;
+    producerId: string;
+  }): Promise<mediasoupTypes.PipeToRouterResult> {
+    return this.router.pipeToRouter({
+      router,
+      producerId,
+    });
+  }
+
+  getRouter(): mediasoupTypes.Router {
+    return this.router;
+  }
+
   getTransport(id: string): mediasoupTypes.WebRtcTransport | undefined {
     return this.transports.get(id);
+  }
+
+  getTransports(): mediasoupTypes.WebRtcTransport[] {
+    return Array.from(this.transports.values());
   }
 
   removeTransport(id: string): void {
@@ -101,6 +155,10 @@ class Peer extends EventEmitter {
     return this.producers.get(id);
   }
 
+  getProducers(): mediasoupTypes.Producer[] {
+    return Array.from(this.producers.values());
+  }
+
   removeProducer(id: string): void {
     this.producers.delete(id);
   }
@@ -113,6 +171,36 @@ class Peer extends EventEmitter {
     return producers;
   }
 
+  closeProducersBySource({
+    room,
+    source,
+  }: {
+    room: Room;
+    source: ProducerSource;
+  }): void {
+    try {
+      const producers = this.getProducersBySource(source);
+      producers.forEach(async producer => {
+        if (producer.kind === 'audio' && source === 'mic') {
+          const audioLevelObserver = room.audioLevelObservers.get(
+            this.router.id
+          );
+          if (audioLevelObserver) {
+            audioLevelObserver
+              .removeProducer({
+                producerId: producer.id,
+              })
+              .catch(error => {
+                console.log(error);
+              });
+          }
+        }
+        producer.close();
+      });
+    } catch (error) {
+      console.error('closeProducersBySource fialed ', { error });
+    }
+  }
   // Consumers methods
   addConsumer(consumer: mediasoupTypes.Consumer): void {
     this.consumers.set(consumer.id, consumer);
@@ -123,6 +211,10 @@ class Peer extends EventEmitter {
 
   getConsumer(id: string): mediasoupTypes.Consumer | undefined {
     return this.consumers.get(id);
+  }
+
+  getConsumers(): mediasoupTypes.Consumer[] {
+    return Array.from(this.consumers.values());
   }
 
   getConsumerByProducerId(
