@@ -497,6 +497,95 @@ class SignalNode extends EventEmitter {
     return transport;
   }
 
+  private async createConsumer({
+    consumingPeer,
+    producerPeerId,
+    producer,
+    room,
+  }: {
+    consumingPeer: Peer;
+    producerPeerId: string;
+    producer: mediasoupTypes.Producer;
+    room: Room;
+  }): Promise<void> {
+    try {
+      if (
+        !consumingPeer.router.canConsume({
+          producerId: producer.id,
+          rtpCapabilities: consumingPeer.getDeviceRTPCapabilities(),
+        })
+      ) {
+        return console.log(`Can not consmer with producerId - ${producer.id}`);
+      }
+      // GET CONSUMER PEER CONSUMER TRANSPORT
+      const transport = consumingPeer
+        .getTransports()
+        .find(tp => tp.appData.isConsumer === true);
+
+      if (!transport) return;
+
+      const consumer = await transport.consume({
+        producerId: producer.id,
+        rtpCapabilities: consumingPeer.getDeviceRTPCapabilities(),
+        paused: true,
+        appData: producer.appData,
+      });
+      // Find out on this
+      if (producer.kind === 'audio' && producer.appData.source === 'mic')
+        await consumer.setPriority(255);
+
+      consumingPeer.addConsumer(consumer);
+
+      const options = {
+        peerId: consumingPeer.id,
+        peerType: consumingPeer.type,
+        meetingId: room.roomId,
+        consumerId: consumer.id,
+        producerPeerId,
+        producerSource: producer.appData.source,
+        fromProducer: true,
+      };
+
+      consumer.observer.on('close', () => {
+        consumingPeer.removeConsumer(consumer.id);
+        consumingPeer.sendMessage(Actions.CloseConsumer, options);
+      });
+
+      consumer.on('producerpause', () => {
+        consumingPeer.sendMessage(Actions.PauseConsumer, options);
+      });
+
+      consumer.on('producerresume', () => {
+        consumingPeer.sendMessage(Actions.ResumeConsumer, options);
+      });
+
+      consumingPeer.sendMessageForResponse(Actions.CreateConsumer, {
+        peerId: consumingPeer.id,
+        peerType: consumingPeer.type,
+        roomId: room.roomId,
+        producerPeerId: producerPeerId,
+        producerId: producer.id,
+        transportId: transport.id,
+        producerSource: producer.appData.source,
+        id: consumer.id,
+        kind: consumer.kind,
+        rtpParameters: consumer.rtpParameters,
+        type: consumer.type,
+        producerPaused: consumer.producerPaused,
+
+        appData: {
+          ...producer.appData,
+          producerPeerId,
+          transportId: transport.id,
+        },
+      });
+      console.log('Create consumer ---', producer.appData.source);
+    } catch (error) {
+      // callback('createConsumersForExistingPeers fialed')
+      console.error('createConsumer fialed ', { error });
+    }
+  }
+
   // Action handlers for different message types
   private actionHandlers: {
     [key in Actions]?: (
@@ -539,7 +628,7 @@ class SignalNode extends EventEmitter {
           roomId,
           router,
           rtpCapabilities,
-          signalNodeId: this.id,
+          signalnode: this,
           type: peerType,
         });
 

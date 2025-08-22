@@ -14,6 +14,8 @@ export enum Actions {
   CloseProducer = 'close_producer',
   PauseProducer = 'pause_producer',
   ResumeProducer = 'resume_producer',
+  CreateConsumer = 'create_consumer',
+  CloseConsumer = 'close_consumer',
   ResumeConsumer = 'resume_consumer',
   PauseConsumer = 'pause_consumer',
   RestartIce = 'restart_ice',
