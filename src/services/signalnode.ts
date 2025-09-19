@@ -11,6 +11,7 @@ import { ValidationSchema } from '../lib/schema';
 import Room from './room';
 import Peer from './peer';
 import {
+  AppData,
   ConnectionState,
   PendingRequest,
   ProducerSource,
@@ -153,7 +154,8 @@ class SignalNode extends EventEmitter {
             pendingRequest.reject(parsedArgs.error as Error);
           } else {
             console.log(action, 'pending request Returned success');
-            pendingRequest.resolve(message);
+            const response = parsedArgs.resolve as AppData;
+            pendingRequest.resolve(response);
           }
           this.pendingRequests.delete(requestId);
           return;
@@ -494,7 +496,7 @@ class SignalNode extends EventEmitter {
     router: mediasoupTypes.Router,
     type: TransportKind = 'consumer'
   ): Promise<mediasoupTypes.WebRtcTransport> {
-    if (router.appData.webRtcServer) throw 'Webrtc server not found';
+    if (!router.appData.webRtcServer) throw 'Webrtc server not found';
     const webRtcServer = router.appData
       .webRtcServer as mediasoupTypes.WebRtcServer;
     const transport = await router.createWebRtcTransport({
@@ -691,14 +693,14 @@ class SignalNode extends EventEmitter {
         peer.addTransport(consumerTransport);
 
         this.sendResponse(Actions.CreateWebrtcTransports, requestId, {
-          producerTransportParams: {
+          sendTransportParams: {
             id: producerTransport.id,
             iceParameters: producerTransport.iceParameters,
             iceCandidates: producerTransport.iceCandidates,
             dtlsParameters: producerTransport.dtlsParameters,
             sctpParameters: producerTransport.sctpParameters,
           },
-          consumerTransportParams: {
+          recvTransportParams: {
             id: consumerTransport.id,
             iceParameters: consumerTransport.iceParameters,
             iceCandidates: consumerTransport.iceCandidates,
