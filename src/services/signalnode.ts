@@ -11,7 +11,7 @@ import { ValidationSchema } from '../lib/schema';
 import Room from './room';
 import Peer from './peer';
 import {
-  AppData,
+  ResponseData,
   ConnectionState,
   PendingRequest,
   ProducerSource,
@@ -154,7 +154,7 @@ class SignalNode extends EventEmitter {
             pendingRequest.reject(parsedArgs.error as Error);
           } else {
             console.log(action, 'pending request Returned success');
-            const response = parsedArgs.resolve as AppData;
+            const response = parsedArgs.resolve as ResponseData;
             pendingRequest.resolve(response);
           }
           this.pendingRequests.delete(requestId);
@@ -738,7 +738,7 @@ class SignalNode extends EventEmitter {
         const { roomId, peerId } = data;
         const room = Room.getRoom(roomId);
         const peer = room?.getPeer(peerId);
-
+        console.log(Actions.CreateConsumersOfAllProducers, 'START');
         if (!room || !peer)
           throw 'Failed to create webrtc transport: Peer/room not found';
         const existingPeers = room.getPeers();
@@ -776,6 +776,7 @@ class SignalNode extends EventEmitter {
               });
           });
         });
+        console.log(Actions.CreateConsumersOfAllProducers, 'END');
       } catch (error) {
         console.log(error);
       }
