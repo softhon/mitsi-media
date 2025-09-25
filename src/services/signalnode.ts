@@ -562,15 +562,15 @@ class SignalNode extends EventEmitter {
 
       consumer.observer.on('close', () => {
         consumingPeer.removeConsumer(consumer.id);
-        consumingPeer.sendMessage(Actions.CloseConsumer, options);
+        consumingPeer.sendMessage(Actions.ConsumerClosed, options);
       });
 
       consumer.on('producerpause', () => {
-        consumingPeer.sendMessage(Actions.PauseConsumer, options);
+        consumingPeer.sendMessage(Actions.ConsumerPaused, options);
       });
 
       consumer.on('producerresume', () => {
-        consumingPeer.sendMessage(Actions.ResumeConsumer, options);
+        consumingPeer.sendMessage(Actions.ConsumerResumed, options);
       });
 
       consumingPeer
