@@ -1,10 +1,9 @@
 import EventEmitter from 'events';
 import { types as mediasoupTypes } from 'mediasoup';
-import { PeerType, ProducerSource } from '../types';
+import { PeerType, ProducerSource, ResponseData } from '../types';
 import { mediaSoupServer } from '../servers/mediasoup-server';
 import SignalNode from './signalnode';
 import { Actions } from '../types/actions';
-import { MessageResponse } from '../protos/gen/mediaSignalingPackage/MessageResponse';
 import Room from './room';
 
 class Peer extends EventEmitter {
@@ -22,20 +21,20 @@ class Peer extends EventEmitter {
   private router: mediasoupTypes.Router;
   workerPid: number;
 
-  static peers = new Map<string, Peer>();
+  // static peers = new Map<string, Peer>();
 
   constructor({
     id,
     roomId,
     router,
-    rtpCapabilities,
+    deviceRtpCapabilities,
     signalnode,
     type,
   }: {
     id: string;
     roomId: string;
     router: mediasoupTypes.Router;
-    rtpCapabilities: mediasoupTypes.RtpCapabilities;
+    deviceRtpCapabilities: mediasoupTypes.RtpCapabilities;
     signalnode: SignalNode;
     type: PeerType;
   }) {
@@ -43,7 +42,7 @@ class Peer extends EventEmitter {
     this.id = id;
     this.roomId = roomId;
     this.closed = false;
-    this.deviceRtpCapabilities = rtpCapabilities;
+    this.deviceRtpCapabilities = deviceRtpCapabilities;
     this.router = router;
     this.workerPid = (router.appData.worker as mediasoupTypes.Worker).pid;
     this.transports = new Map();
@@ -91,7 +90,7 @@ class Peer extends EventEmitter {
   async sendMessageForResponse(
     action: Actions,
     args?: { [key: string]: unknown }
-  ): Promise<MessageResponse | null> {
+  ): Promise<ResponseData> {
     return this.signalnode.sendMessageForResponse(action, args);
   }
 
@@ -146,6 +145,7 @@ class Peer extends EventEmitter {
   // Producer methods
   addProducer(producer: mediasoupTypes.Producer): void {
     this.producers.set(producer.id, producer);
+    console.log('Add Producer', producer.id);
     producer.observer.on('close', () => {
       this.producers.delete(producer.id);
     });
