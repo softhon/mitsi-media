@@ -310,9 +310,9 @@ class GrpcServer extends EventEmitter {
       const stats = this.getStats();
       const memoryUsage = process.memoryUsage();
 
-      console.log(
-        `💗 Health Check - Active: ${stats.activeConnections}, Memory: ${Math.round(memoryUsage.heapUsed / 1024 / 1024)}MB`
-      );
+      // console.log(
+      //   `💗 Health Check - Active: ${stats.activeConnections}, Memory: ${Math.round(memoryUsage.heapUsed / 1024 / 1024)}MB`
+      // );
 
       this.emit('healthCheck', {
         stats,
@@ -323,8 +323,8 @@ class GrpcServer extends EventEmitter {
       // Check for memory leaks
       if (memoryUsage.heapUsed > 512 * 1024 * 1024) {
         // 512MB threshold
-        console.warn('⚠️  High memory usage detected:', memoryUsage);
-        this.emit('memoryWarning', { memoryUsage, timestamp: new Date() });
+        // console.warn('⚠️  High memory usage detected:', memoryUsage);
+        // this.emit('memoryWarning', { memoryUsage, timestamp: new Date() });
       }
     } catch (error) {
       console.error('❌ Health check failed:', error);
@@ -333,12 +333,12 @@ class GrpcServer extends EventEmitter {
 
   private reportMetrics(): void {
     const stats = this.getStats();
-    console.log(`📊 Server Metrics:`, {
-      uptime: `${Math.round(stats.uptime / 1000 / 60)}min`,
-      connections: `${stats.activeConnections}/${stats.totalConnections}`,
-      messages: `R:${stats.totalMessagesReceived} S:${stats.totalMessagesSent}`,
-      errors: stats.errors,
-    });
+    // console.log(`📊 Server Metrics:`, {
+    //   uptime: `${Math.round(stats.uptime / 1000 / 60)}min`,
+    //   connections: `${stats.activeConnections}/${stats.totalConnections}`,
+    //   messages: `R:${stats.totalMessagesReceived} S:${stats.totalMessagesSent}`,
+    //   errors: stats.errors,
+    // });
 
     this.emit('metricsReport', { stats, timestamp: new Date() });
   }

@@ -11,6 +11,7 @@ import { ValidationSchema } from '../lib/schema';
 import Room from './room';
 import Peer from './peer';
 import {
+  ResponseData,
   ConnectionState,
   PendingRequest,
   ProducerSource,
@@ -153,7 +154,8 @@ class SignalNode extends EventEmitter {
             pendingRequest.reject(parsedArgs.error as Error);
           } else {
             console.log(action, 'pending request Returned success');
-            pendingRequest.resolve(message);
+            const response = parsedArgs.resolve as ResponseData;
+            pendingRequest.resolve(response);
           }
           this.pendingRequests.delete(requestId);
           return;
@@ -301,12 +303,9 @@ class SignalNode extends EventEmitter {
   async sendMessageForResponse(
     action: Actions,
     args?: { [key: string]: unknown }
-  ): Promise<MessageResponse | null> {
+  ): Promise<ResponseData> {
     if (!this.call) {
-      console.warn(
-        `⚠️  Cannot send message to MediaNode ${this.id}: not connected`
-      );
-      return null;
+      throw `Cannot send message to MediaNode ${this.id}: not connected`;
     }
 
     try {
@@ -317,7 +316,7 @@ class SignalNode extends EventEmitter {
         requestId,
       };
 
-      return new Promise<MessageResponse>((resolve, reject) => {
+      return new Promise<ResponseData>((resolve, reject) => {
         if (this.call) {
           this.pendingRequests.set(requestId, {
             resolve,
@@ -494,7 +493,7 @@ class SignalNode extends EventEmitter {
     router: mediasoupTypes.Router,
     type: TransportKind = 'consumer'
   ): Promise<mediasoupTypes.WebRtcTransport> {
-    if (router.appData.webRtcServer) throw 'Webrtc server not found';
+    if (!router.appData.webRtcServer) throw 'Webrtc server not found';
     const webRtcServer = router.appData
       .webRtcServer as mediasoupTypes.WebRtcServer;
     const transport = await router.createWebRtcTransport({
@@ -520,6 +519,10 @@ class SignalNode extends EventEmitter {
     room: Room;
   }): Promise<void> {
     try {
+      console.log(
+        'consumingPeer.getDeviceRTPCapabilities()',
+        consumingPeer.getDeviceRTPCapabilities()
+      );
       if (
         !consumingPeer.getRouter().canConsume({
           producerId: producer.id,
@@ -570,26 +573,36 @@ class SignalNode extends EventEmitter {
         consumingPeer.sendMessage(Actions.ResumeConsumer, options);
       });
 
-      consumingPeer.sendMessageForResponse(Actions.CreateConsumer, {
-        peerId: consumingPeer.id,
-        peerType: consumingPeer.type,
-        roomId: room.roomId,
-        producerPeerId: producerPeerId,
-        producerId: producer.id,
-        transportId: transport.id,
-        producerSource: producer.appData.source,
-        id: consumer.id,
-        kind: consumer.kind,
-        rtpParameters: consumer.rtpParameters,
-        type: consumer.type,
-        producerPaused: consumer.producerPaused,
-
-        appData: {
-          ...producer.appData,
-          producerPeerId,
+      consumingPeer
+        .sendMessageForResponse(Actions.ConsumerCreated, {
+          peerId: consumingPeer.id,
+          peerType: consumingPeer.type,
+          roomId: room.roomId,
+          producerPeerId: producerPeerId,
+          producerId: producer.id,
           transportId: transport.id,
-        },
-      });
+          producerSource: producer.appData.source,
+          id: consumer.id,
+          kind: consumer.kind,
+          rtpParameters: consumer.rtpParameters,
+          type: consumer.type,
+          producerPaused: consumer.producerPaused,
+
+          appData: {
+            ...producer.appData,
+            producerPeerId,
+            transportId: transport.id,
+          },
+        })
+        .then(async res => {
+          console.log('CreateConsumer Response -> resolved request', res);
+          // if (producer.appData.source === 'camera') return;
+          await consumer.resume();
+          console.log('resume consumer');
+        })
+        .catch(error => {
+          console.log('CreateConsumer | Resume Consumer', error);
+        });
       console.log('Create consumer ---', producer.appData.source);
     } catch (error) {
       // callback('createConsumersForExistingPeers fialed')
@@ -629,8 +642,9 @@ class SignalNode extends EventEmitter {
         if (!requestId) throw 'Request Id requested';
 
         const data = ValidationSchema.createPeer.parse(args);
-        const { roomId, peerId, peerType, rtpCapabilities } = data;
+        const { roomId, peerId, peerType, deviceRtpCapabilities } = data;
         const room = Room.getRoom(roomId) ?? (await Room.create(roomId));
+        console.log(Actions.CreatePeer, '=>', deviceRtpCapabilities);
 
         const router = await room.assignRouterToPeer();
         if (!router) throw 'Router not assigned to peer';
@@ -638,7 +652,7 @@ class SignalNode extends EventEmitter {
           id: peerId,
           roomId,
           router,
-          rtpCapabilities,
+          deviceRtpCapabilities,
           signalnode: this,
           type: peerType,
         });
@@ -691,14 +705,14 @@ class SignalNode extends EventEmitter {
         peer.addTransport(consumerTransport);
 
         this.sendResponse(Actions.CreateWebrtcTransports, requestId, {
-          producerTransportParams: {
+          sendTransportParams: {
             id: producerTransport.id,
             iceParameters: producerTransport.iceParameters,
             iceCandidates: producerTransport.iceCandidates,
             dtlsParameters: producerTransport.dtlsParameters,
             sctpParameters: producerTransport.sctpParameters,
           },
-          consumerTransportParams: {
+          recvTransportParams: {
             id: consumerTransport.id,
             iceParameters: consumerTransport.iceParameters,
             iceCandidates: consumerTransport.iceCandidates,
@@ -736,7 +750,7 @@ class SignalNode extends EventEmitter {
         const { roomId, peerId } = data;
         const room = Room.getRoom(roomId);
         const peer = room?.getPeer(peerId);
-
+        console.log(Actions.CreateConsumersOfAllProducers, 'START');
         if (!room || !peer)
           throw 'Failed to create webrtc transport: Peer/room not found';
         const existingPeers = room.getPeers();
@@ -774,6 +788,7 @@ class SignalNode extends EventEmitter {
               });
           });
         });
+        console.log(Actions.CreateConsumersOfAllProducers, 'END');
       } catch (error) {
         console.log(error);
       }
@@ -822,7 +837,8 @@ class SignalNode extends EventEmitter {
         // Create server-side consumer for each existing peers
         const existingPeers = room.getPeers();
         existingPeers.forEach(consumingPeer => {
-          if (consumingPeer.id === peerId) return;
+          if (consumingPeer.id === peerId)
+            return console.log('You are the one producing');
           this.createConsumer({
             consumingPeer,
             producer: producer,

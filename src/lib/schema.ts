@@ -8,17 +8,23 @@ const roomIdPeerIdSchema = z.object({
 export const ValidationSchema = {
   roomIdPeerId: roomIdPeerIdSchema,
   createPeer: roomIdPeerIdSchema.extend({
-    rtpCapabilities: z.any(),
+    deviceRtpCapabilities: z
+      .any()
+      .refine(value => value, 'Can not be null or undefined'),
     peerType: z.enum(['Participant', 'Recorder']),
   }),
 
   connectWebRtcTransport: roomIdPeerIdSchema.extend({
     transportId: z.string(),
-    dtlsParameters: z.any(),
+    dtlsParameters: z
+      .any()
+      .refine(value => value, 'Can not be null or undefined'),
   }),
 
   createProducer: roomIdPeerIdSchema.extend({
-    rtpParameters: z.any(),
+    rtpParameters: z
+      .any()
+      .refine(value => value, 'Can not be null or undefined'),
     transportId: z.string(),
     kind: z.enum(['audio', 'video']),
     appData: z.any(),
