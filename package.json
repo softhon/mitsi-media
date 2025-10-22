@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "npm run build && node dist/app.js",
+    "start": "node dist/app.js",
     "dev": "nodemon src/app.ts",
     "build": "tsc",
     "lint": "eslint 'src/**/*.ts' 'tests/**/*.ts'",
@@ -48,7 +48,7 @@
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "helmet": "^8.1.0",
-    "mediasoup": "^3.18.0",
+    "mediasoup": "3.19.4",
     "public-ip": "^7.0.1",
     "redis": "^5.8.0",
     "zod": "^4.0.17"
