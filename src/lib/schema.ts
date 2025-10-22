@@ -5,6 +5,9 @@ const roomIdPeerIdSchema = z.object({
   peerId: z.string(),
 });
 
+const producerSource = z.enum(['mic', 'camera', 'screen', 'screenAudio']);
+const mediaKind = z.enum(['audio', 'video']);
+
 export const ValidationSchema = {
   roomIdPeerId: roomIdPeerIdSchema,
   createPeer: roomIdPeerIdSchema.extend({
@@ -26,13 +29,13 @@ export const ValidationSchema = {
       .any()
       .refine(value => value, 'Can not be null or undefined'),
     transportId: z.string(),
-    kind: z.enum(['audio', 'video']),
+    kind: mediaKind,
     appData: z.any(),
   }),
 
   manageProducer: roomIdPeerIdSchema.extend({
     producerId: z.string(),
-    source: z.enum(['mic', 'camera', 'screen']),
+    source: producerSource,
   }),
 
   restartIce: roomIdPeerIdSchema.extend({

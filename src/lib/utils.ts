@@ -28,10 +28,12 @@ export const registerMediaNode = async (): Promise<MediaNodeData> => {
     // const ip = await publicIpv4();
     const medianodeData: MediaNodeData = {
       id: config.nodeId,
-      ip: '0.0.0.0',
-      address: `${config.port}`,
+      ip: config.serverIp,
+      address: `${config.serverAddress}`,
       grpcPort: `${config.grpcPort}`,
     };
+    // todo  remove data from redis if it matches this node id
+
     await redisServer.sAdd(
       getRedisKey['medianodes'](),
       JSON.stringify(medianodeData)

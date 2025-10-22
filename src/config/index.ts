@@ -18,6 +18,8 @@ const ANNOUNCED_ADDRESS = process.env.ANNOUNCED_ADDRESS || '127.0.0.1';
 
 const config = {
   nodeId: `mnode-1`,
+  serverIp: ANNOUNCED_ADDRESS,
+  serverAddress: process.env.SERVER_ADDRESS,
   env: process.env.NODE_ENV,
   cors: {
     origin: process.env.NODE_ENV === 'production' ? ['https://mitsi.app'] : '*',
