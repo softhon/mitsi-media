@@ -30,7 +30,6 @@ export class MediasoupServer {
 
   private constructor() {
     this.maxWorkerLoad = config.mediasoup.maxWorkerLoad;
-    this.setupGracefulShutdown();
   }
 
   static getInstance(): MediasoupServer {
@@ -221,8 +220,7 @@ export class MediasoupServer {
     };
   }
 
-  gracefulShutdown(): void {
-    console.info('Starting graceful shutdown...');
+  shutdown(): void {
     this.isRunning = false;
 
     Array.from(this.workers.values()).map(workerInfo => {
@@ -234,7 +232,7 @@ export class MediasoupServer {
     });
 
     this.workers.clear();
-    console.info('Graceful shutdown completed');
+    console.info('Gracefully shutdown media server');
   }
 
   private ensureRunning(): void {
@@ -243,24 +241,6 @@ export class MediasoupServer {
         'MediasoupServer is not running. Call waitForInitialization() first.'
       );
     }
-  }
-
-  private setupGracefulShutdown(): void {
-    const shutdown = (): void => {
-      this.gracefulShutdown();
-      process.exit(0);
-    };
-
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
-    process.on('uncaughtException', error => {
-      console.error('Uncaught exception:', error);
-      shutdown();
-    });
-    process.on('unhandledRejection', (reason, promise) => {
-      console.error('Unhandled rejection at:', promise, 'reason:', reason);
-      shutdown();
-    });
   }
 
   private observe(): void {
