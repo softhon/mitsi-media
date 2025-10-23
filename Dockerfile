@@ -1,55 +1,43 @@
-# Use Node.js base image
-FROM node:22-slim
+# Use a base Debian image (not slim)
+FROM node:22-bookworm
 
-# Install dependencies required for mediasoup
-# Set environment variable to skip downloading prebuilt workers
-ENV MEDIASOUP_SKIP_WORKER_PREBUILT_DOWNLOAD="true"
-# Install necessary system packages and dependencies
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        build-essential \
-        python3 \
-        python3-pip \
+# Install dependencies for mediasoup
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    libatomic1 \
+    libstdc++6 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
-# Create app directory
+
+# Workdir
 WORKDIR /usr/src/app
 
-# Copy package files
+# Copy package.json
 COPY package*.json ./
 
-# Install dependencies
-RUN npm i
+# Install dependencies (will build mediasoup worker)
+RUN npm ci
 
-
-# Cleanup unnecessary packages and files
-RUN apt-get purge -y --auto-remove \
-    python3-pip \
-    build-essential \
-    && npm cache clean --force \
-    && rm -rf /tmp/* /var/tmp/* /usr/share/doc/*
-
-# Copy source code
+# Copy source
 COPY . .
 
-# Build the application
+# Build your app
 RUN npm run build
 
-COPY ./src/certs ./dist/certs
+COPY ./src/certs ./dist/certs 
 COPY ./src/protos ./dist/protos
 
-ENV REDIS_SERVER_URL=redis://host.docker.internal:6379
-ENV SERVER_ADDRESS=localhost
-# Expose ports for WebRTC and gRPC
-
+ENV REDIS_SERVER_URL=redis://host.docker.internal:6379 
+ENV SERVER_ADDRESS=localhost 
+# Expose ports for WebRTC and gRPC 
 ENV RTC_MIN_PORT=2000
 ENV RTC_MAX_PORT=2100
-#SERVER PORT 
+# Expose ports
 EXPOSE 4000
-# WebRTC ports (customize as needed)
-EXPOSE 2000-20100/udp
-# gRPC port
+EXPOSE 2000-2100/udp
 EXPOSE 50052
 
-
-# Start the server
-CMD [ "npm", "start" ]
+# Start
+CMD ["npm", "start"]
