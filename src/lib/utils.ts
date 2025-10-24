@@ -1,6 +1,7 @@
 import config from '../config';
 import { redisServer } from '../servers/redis-server';
 import { MediaNodeData } from '../types';
+import { Actions } from '../types/actions';
 
 export const HEARTBEAT_TIMEOUT = 60000; // 90 seconds / 1.30mins
 
@@ -28,14 +29,22 @@ export const registerMediaNode = async (): Promise<MediaNodeData> => {
     // const ip = await publicIpv4();
     const medianodeData: MediaNodeData = {
       id: config.nodeId,
-      ip: '0.0.0.0',
-      address: `${config.port}`,
+      ip: config.serverIp,
       grpcPort: `${config.grpcPort}`,
     };
+    // todo  remove data from redis if it matches this node id
+
     await redisServer.sAdd(
       getRedisKey['medianodes'](),
       JSON.stringify(medianodeData)
     );
+
+    // publish update to notify other services
+    await redisServer.publish({
+      channel: Actions.Message,
+      action: Actions.MediaNodeAdded,
+      args: { ...medianodeData },
+    });
     return medianodeData;
   } catch (error) {
     throw error;

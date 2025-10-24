@@ -64,4 +64,8 @@ export enum Actions {
   ConnectionError = 'connection_error',
 
   Close = 'close',
+
+  // MediaNode actions
+  MediaNodeAdded = 'medianode_added',
+  MediaNodeRemoved = 'medianode_removed',
 }

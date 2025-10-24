@@ -1,7 +1,7 @@
 import { createClient, RedisClientType, SetOptions } from 'redis';
 
+import { Actions as PSA } from '../types/actions';
 import config from '../config';
-import { Actions } from '../types/actions';
 
 class RedisServer {
   private static instance: RedisServer | null = null;
@@ -29,7 +29,7 @@ class RedisServer {
     try {
       await Promise.all([this.pubClient.connect(), this.subClient.connect()]);
       this.isConnected = true;
-      await this.subscribe();
+      await this.subscribe(PSA.Message);
       console.log('redis connected');
     } catch (error) {
       console.error(error);
@@ -37,38 +37,39 @@ class RedisServer {
     }
   }
 
-  private async subscribe(): Promise<void> {
+  async subscribe(channel: string): Promise<void> {
     if (!this.isConnected)
       throw new Error('Redis clients are not connected. Call connect() first');
-    await this.subClient.subscribe(Actions.Message, message => {
+    await this.subClient.subscribe(channel, message => {
       const {
-        event,
+        action,
         args,
       }: {
-        event: Actions;
+        action: PSA;
         args: { [key: string]: unknown };
       } = JSON.parse(message);
 
-      console.log(event, args);
+      const handler = this.pubSubHander[action];
 
-      // const handler = PubSubHandler[event];
-
-      // handler && handler(args);
+      if (handler) handler(args);
     });
+    console.log(`Subscribed to channel "${channel}"`);
   }
 
   async publish({
-    event,
+    channel,
+    action,
     args,
   }: {
-    event: Actions;
+    channel: string;
+    action: PSA;
     args: { [key: string]: unknown };
   }): Promise<void> {
     if (!this.isConnected)
       throw new Error('Redis clients are not connected. Call connect() first');
 
-    const message = JSON.stringify({ event, args });
-    await this.pubClient.publish(Actions.Message, message);
+    const message = JSON.stringify({ action, args });
+    await this.pubClient.publish(channel, message);
     console.info(`Message published to channe ${message}`);
   }
 
@@ -123,6 +124,14 @@ class RedisServer {
     await this.subClient.unsubscribe(channel);
     console.log(`Unsubscribed from channel "${channel}"`);
   }
+
+  private pubSubHander: {
+    [key in PSA]?: (args: { [key: string]: unknown }) => void;
+  } = {
+    [PSA.RemovePeer]: args => {
+      console.log(args);
+    },
+  };
 }
 
 export const redisServer = RedisServer.getInstance();

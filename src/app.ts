@@ -10,6 +10,7 @@ import { grpcServer } from './servers/grpc-server';
 import { MediaNodeData } from './types';
 import { getRedisKey, registerMediaNode } from './lib/utils';
 import { mediaSoupServer } from './servers/mediasoup-server';
+import { Actions } from './types/actions';
 
 const app = express();
 app.use(cors(config.cors));
@@ -45,10 +46,15 @@ const shutdown = async (): Promise<void> => {
       getRedisKey['medianodes'](),
       JSON.stringify(medianodeData)
     );
+    await redisServer.publish({
+      channel: Actions.Message,
+      action: Actions.MediaNodeRemoved,
+      args: { id: medianodeData.id },
+    });
     console.log('Delete medianode');
-
-    await redisServer.disconnect();
     httpsServer.close();
+    mediaSoupServer.shutdown();
+    await redisServer.disconnect();
     console.log('Application shut down gracefully');
     process.exit(0);
   } catch (err) {
@@ -60,3 +66,12 @@ const shutdown = async (): Promise<void> => {
 // Graceful shutdown
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+process.on('uncaughtException', error => {
+  console.error('Uncaught exception:', error);
+  shutdown();
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled rejection at:', promise, 'reason:', reason);
+  shutdown();
+});

@@ -5,7 +5,6 @@ import { types as mediasoupTypes } from 'mediasoup';
 import { Actions } from '../types/actions';
 import { MessageRequest } from '../protos/gen/mediaSignalingPackage/MessageRequest';
 import { MessageResponse } from '../protos/gen/mediaSignalingPackage/MessageResponse';
-import { grpcServer } from '../servers/grpc-server';
 import { mediaSoupServer } from '../servers/mediasoup-server';
 import { ValidationSchema } from '../lib/schema';
 import Room from './room';
@@ -262,42 +261,26 @@ class SignalNode extends EventEmitter {
       connectionId: this.connectionId,
       message: 'Successfully connected to Media Signaling Server',
       timestamp: Date.now(),
-      serverMetrics: grpcServer.getStats() || {},
       routerRtpCapabilities: rtpCapabilities,
     });
   }
 
   // Public methods
-  sendMessage(action: Actions, args?: { [key: string]: unknown }): boolean {
+  sendMessage(action: Actions, args?: { [key: string]: unknown }): void {
     if (!this.isActive()) {
-      console.warn(`⚠️  Cannot send message to ${this.id}: node is inactive`);
-      return false;
+      console.warn(`Cannot send message to ${this.id}: node is inactive`);
+      return;
     }
 
     if (!this.call) {
-      console.warn(`⚠️  Cannot send message to ${this.id}: call is null`);
-      return false;
+      throw `Cannot send message to ${this.id}: call is null`;
     }
+    const message = {
+      action,
+      args: JSON.stringify(args || {}),
+    };
 
-    try {
-      const messageId = this.generateMessageId();
-      const message = {
-        action,
-        args: JSON.stringify(args || {}),
-      };
-
-      this.call.write(message);
-
-      grpcServer.incrementMessageStats(1, 0);
-
-      console.log(`Sent ${action} to ${this.id} (${messageId})`);
-
-      return true;
-    } catch (error) {
-      console.error(`Error sending message to ${this.id}:`, error);
-      this.handleError(error as Error, 'send_message_error');
-      return false;
-    }
+    this.call.write(message);
   }
 
   async sendMessageForResponse(
@@ -307,79 +290,58 @@ class SignalNode extends EventEmitter {
     if (!this.call) {
       throw `Cannot send message to MediaNode ${this.id}: not connected`;
     }
+    const requestId = crypto.randomUUID();
+    const message: MessageRequest = {
+      action,
+      args: JSON.stringify(args || {}),
+      requestId,
+    };
 
-    try {
-      const requestId = crypto.randomUUID();
-      const message: MessageRequest = {
-        action,
-        args: JSON.stringify(args || {}),
-        requestId,
-      };
-
-      return new Promise<ResponseData>((resolve, reject) => {
-        if (this.call) {
-          this.pendingRequests.set(requestId, {
-            resolve,
-            reject,
-          }); // save resolve
-          this.call.write(message);
-        }
-      });
-    } catch (error) {
-      console.error(`Error sending message to MediaNode ${this.id}:`, error);
-      throw error;
-    }
+    return new Promise<ResponseData>((resolve, reject) => {
+      if (this.call) {
+        this.pendingRequests.set(requestId, {
+          resolve,
+          reject,
+        });
+        this.call.write(message);
+      }
+    });
   }
+
   sendResponse(
     action: Actions,
     requestId: string,
     response: { [key: string]: unknown }
   ): void {
     if (!this.call) {
-      console.warn(
-        `⚠️Cannot send message to MediaNode ${this.id}: not connected`
-      );
-      return;
+      throw `Cannot send message to MediaNode ${this.id}: not connected`;
     }
+    const message: MessageRequest = {
+      action,
+      requestId,
+      args: JSON.stringify({
+        status: 'success',
+        response,
+      }),
+    };
 
-    try {
-      const message: MessageRequest = {
-        action,
-        requestId,
-        args: JSON.stringify({
-          status: 'success',
-          response,
-        }),
-      };
-
-      this.call.write(message);
-    } catch (error) {
-      console.error(`Error sending message to MediaNode ${this.id}:`, error);
-      throw error;
-    }
+    this.call.write(message);
   }
+
   sendError(action: Actions, requestId: string, error: Error | unknown): void {
     if (!this.call) {
-      console.warn(
-        `⚠️Cannot send message to MediaNode ${this.id}: not connected`
-      );
-      return;
+      throw `Cannot send message to MediaNode ${this.id}: not connected`;
     }
-    try {
-      const message: MessageRequest = {
-        action,
-        requestId,
-        args: JSON.stringify({
-          status: 'error',
-          error,
-        }),
-      };
+    const message: MessageRequest = {
+      action,
+      requestId,
+      args: JSON.stringify({
+        status: 'error',
+        error,
+      }),
+    };
 
-      this.call.write(message);
-    } catch (error) {
-      console.error(`Error sending message to MediaNode ${this.id}:`, error);
-      throw error;
-    }
+    this.call.write(message);
   }
 
   async gracefulDisconnect(
@@ -389,7 +351,7 @@ class SignalNode extends EventEmitter {
       return;
     }
 
-    console.log(`👋 Gracefully disconnecting ${this.id} (${reason})`);
+    console.log(`Gracefully disconnecting ${this.id} (${reason})`);
     this.setState(ConnectionState.Disconnecting);
 
     try {
@@ -408,10 +370,7 @@ class SignalNode extends EventEmitter {
         this.call.end();
       }
     } catch (error) {
-      console.warn(
-        `⚠️  Error during graceful disconnect for ${this.id}:`,
-        error
-      );
+      console.warn(`Error during graceful disconnect for ${this.id}:`, error);
     } finally {
       this.handleClientDisconnection(reason);
     }
@@ -425,7 +384,7 @@ class SignalNode extends EventEmitter {
         this.call.destroy();
       }
     } catch (error) {
-      console.warn(`⚠️  Error during force disconnect for ${this.id}:`, error);
+      console.warn(`Error during force disconnect for ${this.id}:`, error);
     } finally {
       this.handleClientDisconnection(reason);
     }
@@ -440,10 +399,6 @@ class SignalNode extends EventEmitter {
 
   getState(): ConnectionState {
     return this.connectionState;
-  }
-
-  private generateMessageId(): string {
-    return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
   }
 
   // Static methods for managing all nodes
@@ -471,20 +426,20 @@ class SignalNode extends EventEmitter {
 
   static async disconnectAll(): Promise<void> {
     console.log(
-      `🛑 Disconnecting all ${SignalNode.signalNodes.size} signal nodes...`
+      `Disconnecting all ${SignalNode.signalNodes.size} signal nodes...`
     );
 
     const nodes = Array.from(SignalNode.signalNodes.values());
     const disconnectPromises = nodes.map(node =>
       node.gracefulDisconnect('disconnect_all').catch(error => {
-        console.warn(`⚠️  Error disconnecting node ${node.id}:`, error);
+        console.warn(`Error disconnecting node ${node.id}:`, error);
         node.forceDisconnect('disconnect_all_force');
       })
     );
 
     await Promise.allSettled(disconnectPromises);
     SignalNode.signalNodes.clear();
-    console.log('✅ All signal nodes disconnected');
+    console.log('All signal nodes disconnected');
   }
 
   static broadcastMessage(): void {}
@@ -551,9 +506,9 @@ class SignalNode extends EventEmitter {
       consumingPeer.addConsumer(consumer);
 
       const options = {
+        roomId: room.roomId,
         peerId: consumingPeer.id,
         peerType: consumingPeer.type,
-        meetingId: room.roomId,
         consumerId: consumer.id,
         producerPeerId,
         producerSource: producer.appData.source,
@@ -562,15 +517,15 @@ class SignalNode extends EventEmitter {
 
       consumer.observer.on('close', () => {
         consumingPeer.removeConsumer(consumer.id);
-        consumingPeer.sendMessage(Actions.CloseConsumer, options);
+        consumingPeer.sendMessage(Actions.ConsumerClosed, options);
       });
 
       consumer.on('producerpause', () => {
-        consumingPeer.sendMessage(Actions.PauseConsumer, options);
+        consumingPeer.sendMessage(Actions.ConsumerPaused, options);
       });
 
       consumer.on('producerresume', () => {
-        consumingPeer.sendMessage(Actions.ResumeConsumer, options);
+        consumingPeer.sendMessage(Actions.ConsumerResumed, options);
       });
 
       consumingPeer
@@ -618,7 +573,7 @@ class SignalNode extends EventEmitter {
     ) => void;
   } = {
     [Actions.Connected]: args => {
-      console.log(`✅ Connection confirmed from ${this.id}:`, args);
+      console.log(`Connection confirmed from ${this.id}:`, args);
       this.emit('connectionConfirmed', { nodeId: this.id, args });
     },
 
@@ -632,7 +587,7 @@ class SignalNode extends EventEmitter {
     },
 
     [Actions.HeartbeatAck]: args => {
-      console.log(`💗 Heartbeat acknowledged by ${this.id}`, args);
+      console.log(`Heartbeat acknowledged by ${this.id}`, args);
     },
 
     // Add more handlers as needed for your specific actions
