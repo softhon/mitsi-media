@@ -52,10 +52,9 @@ const shutdown = async (): Promise<void> => {
       args: { id: medianodeData.id },
     });
     console.log('Delete medianode');
-
+    httpsServer.close();
     mediaSoupServer.shutdown();
     await redisServer.disconnect();
-    httpsServer.close();
     console.log('Application shut down gracefully');
     process.exit(0);
   } catch (err) {
