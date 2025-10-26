@@ -108,6 +108,55 @@ class RedisServer {
     return await this.pubClient.sMembers(key);
   }
 
+  async hSet(key: string, field: string, value: string): Promise<number> {
+    return await this.pubClient.hSet(key, field, value);
+  }
+
+  async hGet(key: string, field: string): Promise<string | null> {
+    return await this.pubClient.hGet(key, field);
+  }
+
+  async hDel(key: string, field: string): Promise<number> {
+    return await this.pubClient.hDel(key, field);
+  }
+
+  async hGetAll(key: string): Promise<{ [key: string]: string }> {
+    return await this.pubClient.hGetAll(key);
+  }
+
+  async hkeys(key: string): Promise<string[]> {
+    return await this.pubClient.hKeys(key);
+  }
+
+  async hVals(key: string): Promise<string[]> {
+    return await this.pubClient.hVals(key);
+  }
+
+  async hLen(key: string): Promise<number> {
+    return await this.pubClient.hLen(key);
+  }
+
+  async del(key: string): Promise<number> {
+    return await this.pubClient.del(key);
+  }
+
+  async expire(key: string, seconds: number): Promise<number> {
+    return await this.pubClient.expire(key, seconds);
+  }
+
+  async hExpire(
+    key: string,
+    fields: string[],
+    seconds: number,
+    mode: 'NX' | 'XX' | 'GT' | 'LT' | undefined
+  ): Promise<number[]> {
+    return await this.pubClient.hExpire(key, fields, seconds, mode);
+  }
+
+  async persist(key: string): Promise<number> {
+    return await this.pubClient.persist(key);
+  }
+
   async disconnect(): Promise<void> {
     if (this.isConnected) {
       await Promise.all([this.pubClient.quit(), this.subClient.quit()]);
