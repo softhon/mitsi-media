@@ -1,6 +1,7 @@
 import Redis from 'ioredis';
 
 import { Actions as PSA } from '../types/actions';
+import config from '../config';
 
 class IORedisServer {
   private static instance: IORedisServer | null = null;
@@ -10,7 +11,7 @@ class IORedisServer {
   private isConnected: boolean = false;
 
   private constructor() {
-    this.pubClient = new Redis();
+    this.pubClient = new Redis(config.redisServerUrl);
     this.subClient = this.pubClient.duplicate();
   }
 
@@ -86,7 +87,7 @@ class IORedisServer {
       console.log(
         `got pubsub event from channel -> ${channel} message -> ${message}`
       );
-
+      // check and ignore if publisher
       const handler = this.pubSubHander[action];
 
       if (handler) handler(args);
