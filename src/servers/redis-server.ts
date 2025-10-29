@@ -108,8 +108,42 @@ class RedisServer {
     return await this.pubClient.sMembers(key);
   }
 
-  async hSet(key: string, field: string, value: string): Promise<number> {
-    return await this.pubClient.hSet(key, field, value);
+  async scan(
+    cursor: number | string,
+    options: {
+      MATCH: string;
+      COUNT: number;
+    }
+  ): Promise<{
+    cursor: string;
+    keys: string[];
+  }> {
+    const stringCursor =
+      typeof cursor === 'number' ? cursor.toString() : cursor;
+
+    return await this.pubClient.scan(stringCursor, options);
+  }
+
+  async exists(key: string): Promise<number> {
+    return await this.pubClient.exists(key);
+  }
+
+  async hSet(
+    key: string,
+    fieldOrValue: string | Record<string, string | number>,
+    value?: string | number
+  ): Promise<number> {
+    if (typeof fieldOrValue === 'string') {
+      if (value === undefined) {
+        throw new Error('Value must be provided when field is a string');
+      }
+      return await this.pubClient.hSet(key, fieldOrValue, value);
+    }
+
+    if (typeof fieldOrValue === 'object') {
+      return await this.pubClient.hSet(key, fieldOrValue);
+    }
+    throw new Error('Invalid arguments for hSet');
   }
 
   async hGet(key: string, field: string): Promise<string | null> {
@@ -120,7 +154,7 @@ class RedisServer {
     return await this.pubClient.hDel(key, field);
   }
 
-  async hGetAll(key: string): Promise<{ [key: string]: string }> {
+  async hGetAll(key: string): Promise<{ [key: string]: string | number }> {
     return await this.pubClient.hGetAll(key);
   }
 
@@ -148,7 +182,7 @@ class RedisServer {
     key: string,
     fields: string[],
     seconds: number,
-    mode: 'NX' | 'XX' | 'GT' | 'LT' | undefined
+    mode?: 'NX' | 'XX' | 'GT' | 'LT' | undefined
   ): Promise<number[]> {
     return await this.pubClient.hExpire(key, fields, seconds, mode);
   }
@@ -183,4 +217,4 @@ class RedisServer {
   };
 }
 
-export const redisServer = RedisServer.getInstance();
+export default RedisServer;

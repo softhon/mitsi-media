@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import Peer from './peer';
 import config from '../config';
 import { mediaSoupServer } from '../servers/mediasoup-server';
-import { redisServer } from '../servers/redis-server';
+import { ioRedisServer } from '../servers/ioredis-server';
 import { getRedisKey } from '../lib/utils';
 import { Actions } from '../types/actions';
 import MediaNode from './medianode';
@@ -289,7 +289,7 @@ class Room extends EventEmitter {
 
       // store meeting active speaker peerid in db.
       // todo may require a different position when optimising for multiple media servers]
-      redisServer.set(
+      ioRedisServer.set(
         getRedisKey['roomActiveSpeakerPeerId'](this.roomId),
         JSON.stringify(peerId)
       );
