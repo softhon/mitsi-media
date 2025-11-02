@@ -1,9 +1,10 @@
 import config from '../config';
-import { redisServer } from '../servers/redis-server';
+import { ioRedisServer } from '../servers/ioredis-server';
 import { MediaNodeData } from '../types';
 import { Actions } from '../types/actions';
 
 export const HEARTBEAT_TIMEOUT = 60000; // 90 seconds / 1.30mins
+export const MEDIANODE_TTL = 300000; // 180seconds 3mins
 
 export const getRedisKey = {
   room: (roomId: string): string => `room:${roomId}`,
@@ -13,7 +14,8 @@ export const getRedisKey = {
   roomActiveSpeakerPeerId: (roomId: string): string =>
     `room:${roomId}:activespeakerpeerid`,
   rooms: (): string => `rooms`,
-  medianodes: (): string => `medianodes`,
+  medianodes: (): string => `medianodes`, // todo delete
+  medianode: (nodeId: string): string => `medianodes:${nodeId}`,
   signalnodes: (): string => `signalnodes`,
   roomMedianodes: (roomId: string): string => `room:${roomId}:medianodes`,
   roomSignalnodes: (roomId: string): string => `room:${roomId}:signalnodes`,
@@ -34,13 +36,23 @@ export const registerMediaNode = async (): Promise<MediaNodeData> => {
     };
     // todo  remove data from redis if it matches this node id
 
-    await redisServer.sAdd(
-      getRedisKey['medianodes'](),
-      JSON.stringify(medianodeData)
-    );
+    // await redisServer.sAdd(
+    //   {etRedisKey['medianodes'](),
+    //   JSON.stringify(medianodeData)
+    // );
 
+    // register medianode in redis hash for easy lookup
+    await ioRedisServer.hSet(getRedisKey['medianode'](medianodeData.id), {
+      ...medianodeData,
+    });
+
+    // set ttl for medianode
+    await ioRedisServer.expire(
+      getRedisKey['medianode'](medianodeData.id),
+      MEDIANODE_TTL / 1000
+    );
     // publish update to notify other services
-    await redisServer.publish({
+    await ioRedisServer.publish({
       channel: Actions.Message,
       action: Actions.MediaNodeAdded,
       args: { ...medianodeData },
@@ -49,6 +61,13 @@ export const registerMediaNode = async (): Promise<MediaNodeData> => {
   } catch (error) {
     throw error;
   }
+};
+
+export const handleHeartBeat = async (): Promise<void> => {
+  ioRedisServer
+    .expire(getRedisKey['medianode'](config.nodeId), MEDIANODE_TTL / 1000)
+    .catch(error => console.log(error));
+  console.log('handleHeartBeat');
 };
 
 export const parseArguments = (args?: string): { [key: string]: unknown } => {

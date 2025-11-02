@@ -108,6 +108,89 @@ class RedisServer {
     return await this.pubClient.sMembers(key);
   }
 
+  async scan(
+    cursor: number | string,
+    options: {
+      MATCH: string;
+      COUNT: number;
+    }
+  ): Promise<{
+    cursor: string;
+    keys: string[];
+  }> {
+    const stringCursor =
+      typeof cursor === 'number' ? cursor.toString() : cursor;
+
+    return await this.pubClient.scan(stringCursor, options);
+  }
+
+  async exists(key: string): Promise<number> {
+    return await this.pubClient.exists(key);
+  }
+
+  async hSet(
+    key: string,
+    fieldOrValue: string | Record<string, string | number>,
+    value?: string | number
+  ): Promise<number> {
+    if (typeof fieldOrValue === 'string') {
+      if (value === undefined) {
+        throw new Error('Value must be provided when field is a string');
+      }
+      return await this.pubClient.hSet(key, fieldOrValue, value);
+    }
+
+    if (typeof fieldOrValue === 'object') {
+      return await this.pubClient.hSet(key, fieldOrValue);
+    }
+    throw new Error('Invalid arguments for hSet');
+  }
+
+  async hGet(key: string, field: string): Promise<string | null> {
+    return await this.pubClient.hGet(key, field);
+  }
+
+  async hDel(key: string, field: string): Promise<number> {
+    return await this.pubClient.hDel(key, field);
+  }
+
+  async hGetAll(key: string): Promise<{ [key: string]: string | number }> {
+    return await this.pubClient.hGetAll(key);
+  }
+
+  async hkeys(key: string): Promise<string[]> {
+    return await this.pubClient.hKeys(key);
+  }
+
+  async hVals(key: string): Promise<string[]> {
+    return await this.pubClient.hVals(key);
+  }
+
+  async hLen(key: string): Promise<number> {
+    return await this.pubClient.hLen(key);
+  }
+
+  async del(key: string): Promise<number> {
+    return await this.pubClient.del(key);
+  }
+
+  async expire(key: string, seconds: number): Promise<number> {
+    return await this.pubClient.expire(key, seconds);
+  }
+
+  async hExpire(
+    key: string,
+    fields: string[],
+    seconds: number,
+    mode?: 'NX' | 'XX' | 'GT' | 'LT' | undefined
+  ): Promise<number[]> {
+    return await this.pubClient.hExpire(key, fields, seconds, mode);
+  }
+
+  async persist(key: string): Promise<number> {
+    return await this.pubClient.persist(key);
+  }
+
   async disconnect(): Promise<void> {
     if (this.isConnected) {
       await Promise.all([this.pubClient.quit(), this.subClient.quit()]);
@@ -134,4 +217,4 @@ class RedisServer {
   };
 }
 
-export const redisServer = RedisServer.getInstance();
+export default RedisServer;

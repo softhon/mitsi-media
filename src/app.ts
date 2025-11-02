@@ -5,12 +5,11 @@ import { createServer } from 'https';
 
 import config from './config';
 import { Routes } from './routes';
-import { redisServer } from './servers/redis-server';
 import { grpcServer } from './servers/grpc-server';
-import { MediaNodeData } from './types';
-import { getRedisKey, registerMediaNode } from './lib/utils';
+import { getRedisKey, handleHeartBeat, registerMediaNode } from './lib/utils';
 import { mediaSoupServer } from './servers/mediasoup-server';
 import { Actions } from './types/actions';
+import { ioRedisServer } from './servers/ioredis-server';
 
 const app = express();
 app.use(cors(config.cors));
@@ -20,11 +19,12 @@ app.use('/', Routes);
 
 const httpsServer = createServer(config.httpsServerOptions, app);
 
-let medianodeData: MediaNodeData;
+// let medianodeData: MediaNodeData;
+let heartBeatInterval: NodeJS.Timeout;
 
 (async (): Promise<void> => {
   try {
-    await redisServer.connect();
+    await ioRedisServer.connect();
     httpsServer.listen(config.port, () => {
       console.log(`Server running on port ${config.port}`);
     });
@@ -32,7 +32,10 @@ let medianodeData: MediaNodeData;
 
     await mediaSoupServer.start();
 
-    medianodeData = await registerMediaNode();
+    await registerMediaNode();
+
+    heartBeatInterval = setInterval(handleHeartBeat, 120000);
+
     console.log('Register medianode');
   } catch (error) {
     console.error('Initialization error:', error);
@@ -42,19 +45,20 @@ let medianodeData: MediaNodeData;
 
 const shutdown = async (): Promise<void> => {
   try {
-    await redisServer.sRem(
-      getRedisKey['medianodes'](),
-      JSON.stringify(medianodeData)
-    );
-    await redisServer.publish({
+    await ioRedisServer.publish({
       channel: Actions.Message,
       action: Actions.MediaNodeRemoved,
-      args: { id: medianodeData.id },
+      args: { id: config.nodeId },
     });
+
+    await ioRedisServer.del(getRedisKey['medianode'](config.nodeId));
+
     console.log('Delete medianode');
     httpsServer.close();
     mediaSoupServer.shutdown();
-    await redisServer.disconnect();
+    await ioRedisServer.disconnect();
+
+    clearInterval(heartBeatInterval);
     console.log('Application shut down gracefully');
     process.exit(0);
   } catch (err) {
