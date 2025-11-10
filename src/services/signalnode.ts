@@ -474,10 +474,6 @@ class SignalNode extends EventEmitter {
     room: Room;
   }): Promise<void> {
     try {
-      console.log(
-        'consumingPeer.getDeviceRTPCapabilities()',
-        consumingPeer.getDeviceRTPCapabilities()
-      );
       if (
         !consumingPeer.getRouter().canConsume({
           producerId: producer.id,
@@ -599,7 +595,6 @@ class SignalNode extends EventEmitter {
         const data = ValidationSchema.createPeer.parse(args);
         const { roomId, peerId, peerType, deviceRtpCapabilities } = data;
         const room = Room.getRoom(roomId) ?? (await Room.create(roomId));
-        console.log(Actions.CreatePeer, '=>', deviceRtpCapabilities);
 
         const router = await room.assignRouterToPeer();
         if (!router) throw 'Router not assigned to peer';
