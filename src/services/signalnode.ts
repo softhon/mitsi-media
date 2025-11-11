@@ -700,7 +700,6 @@ class SignalNode extends EventEmitter {
         const { roomId, peerId } = data;
         const room = Room.getRoom(roomId);
         const peer = room?.getPeer(peerId);
-        console.log(Actions.CreateConsumersOfAllProducers, 'START');
         if (!room || !peer)
           throw 'Failed to create webrtc transport: Peer/room not found';
         const existingPeers = room.getPeers();
@@ -738,7 +737,6 @@ class SignalNode extends EventEmitter {
               });
           });
         });
-        console.log(Actions.CreateConsumersOfAllProducers, 'END');
       } catch (error) {
         console.log(error);
       }
