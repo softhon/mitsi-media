@@ -67,7 +67,6 @@ export const handleHeartBeat = async (): Promise<void> => {
   ioRedisServer
     .expire(getRedisKey['medianode'](config.nodeId), MEDIANODE_TTL / 1000)
     .catch(error => console.log(error));
-  console.log('handleHeartBeat');
 };
 
 export const parseArguments = (args?: string): { [key: string]: unknown } => {
