@@ -670,7 +670,6 @@ class SignalNode extends EventEmitter {
             sctpParameters: consumerTransport.sctpParameters,
           },
         });
-        console.log('Close Peer');
       } catch (error) {
         console.log(error);
         this.sendError(Actions.CreatePeer, requestId as string, error);
