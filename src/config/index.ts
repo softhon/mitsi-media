@@ -42,8 +42,8 @@ const config = {
     workerSettings: {
       dtlsCertificateFile: certFile,
       dtlsPrivateKeyFile: keyFile,
-      rtcMinPort: parseInt(process.env.RTC_MIN_PORT || '2000'),
-      rtcMaxPort: parseInt(process.env.RTC_MAX_PORT || '2300'),
+      rtcMinPort: parseInt(process.env.RTC_MIN_PORT || '10000'),
+      rtcMaxPort: parseInt(process.env.RTC_MAX_PORT || '60000'),
       logLevel: 'warn' as mediasoupTypes.WorkerLogLevel,
       logTags: [
         'info',

@@ -18,6 +18,7 @@ export enum Actions {
   CloseConsumer = 'close_consumer',
   ResumeConsumer = 'resume_consumer',
   PauseConsumer = 'pause_consumer',
+  SetConsumerPreferredLayers = 'set_consumer_preferred_layers',
 
   // consumed by client
   ConsumerCreated = 'consumer_created',

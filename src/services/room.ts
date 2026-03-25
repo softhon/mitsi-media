@@ -168,7 +168,7 @@ class Room extends EventEmitter {
   }
 
   async assignRouterToPeer(): Promise<mediasoupTypes.Router | null> {
-    const router = this.getLeastLoadedRouter();
+    const router = await this.getLeastLoadedRouter();
     if (router) {
       await this.pipeProducersToRouter(router);
       return router;
@@ -184,11 +184,11 @@ class Room extends EventEmitter {
     );
   }
 
-  getLeastLoadedRouter(): mediasoupTypes.Router | null {
+  async getLeastLoadedRouter(): Promise<mediasoupTypes.Router | null> {
     // the least loaded router,
     // is the room router of the least loaded worker
 
-    const leastLoadedWorker = mediaSoupServer.getLeastLoadedWorker();
+    const leastLoadedWorker = await mediaSoupServer.getLeastLoadedWorker();
 
     if (!leastLoadedWorker) throw 'Least Loaded Worker not found';
 

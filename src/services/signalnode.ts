@@ -92,7 +92,28 @@ class SignalNode extends EventEmitter {
     }
   }
 
-  private setupHeartbeat(): void {}
+  private setupHeartbeat(): void {
+    this.lastHeartbeat = Date.now();
+    this.heartbeatInterval = setInterval(() => {
+      const staleness = Date.now() - this.lastHeartbeat;
+      if (staleness > this.heartbeatTimeout) {
+        console.warn(
+          `SignalNode ${this.id} heartbeat timeout (${staleness}ms) — disconnecting`
+        );
+        this.handleClientDisconnection('heartbeat_timeout');
+        return;
+      }
+      try {
+        this.sendMessage(Actions.Heartbeat, {
+          timestamp: Date.now(),
+          nodeId: this.id,
+          connectionId: this.connectionId,
+        });
+      } catch (error) {
+        console.warn(`Failed to send heartbeat for ${this.id}:`, error);
+      }
+    }, 30000);
+  }
 
   private clearHeartbeat(): void {
     if (this.heartbeatInterval) {
@@ -169,18 +190,23 @@ class SignalNode extends EventEmitter {
         return;
       }
 
+      if (action === Actions.HeartbeatAck) {
+        this.lastHeartbeat = Date.now();
+        return;
+      }
+
       // Find and execute handler
       const handler = this.actionHandlers[action as Actions];
       if (handler) {
-        try {
-          handler(parsedArgs, requestId);
-        } catch (handlerError) {
-          console.error(
-            ` Error in handler for action ${action} from ${this.id}:`,
-            handlerError
-          );
-          this.handleError(handlerError as Error, 'handler_error');
-        }
+        Promise.resolve()
+          .then(() => handler(parsedArgs, requestId))
+          .catch((handlerError: Error) => {
+            console.error(
+              `Error in handler for action ${action} from ${this.id}:`,
+              handlerError
+            );
+            this.handleError(handlerError, 'handler_error');
+          });
       } else {
         console.warn(`⚠️  No handler for action ${action} from ${this.id}`);
         this.emit('unhandledMessage', {
@@ -290,6 +316,7 @@ class SignalNode extends EventEmitter {
     if (!this.call) {
       throw `Cannot send message to MediaNode ${this.id}: not connected`;
     }
+    const REQUEST_TIMEOUT_MS = 30000;
     const requestId = crypto.randomUUID();
     const message: MessageRequest = {
       action,
@@ -299,9 +326,26 @@ class SignalNode extends EventEmitter {
 
     return new Promise<ResponseData>((resolve, reject) => {
       if (this.call) {
+        const timeout = setTimeout(() => {
+          if (this.pendingRequests.has(requestId)) {
+            this.pendingRequests.delete(requestId);
+            reject(
+              new Error(
+                `Request timeout after ${REQUEST_TIMEOUT_MS}ms for action ${action}`
+              )
+            );
+          }
+        }, REQUEST_TIMEOUT_MS);
+
         this.pendingRequests.set(requestId, {
-          resolve,
-          reject,
+          resolve: data => {
+            clearTimeout(timeout);
+            resolve(data);
+          },
+          reject: err => {
+            clearTimeout(timeout);
+            reject(err);
+          },
         });
         this.call.write(message);
       }
@@ -566,7 +610,7 @@ class SignalNode extends EventEmitter {
     [key in Actions]?: (
       args: { [key: string]: unknown },
       requestId?: string
-    ) => void;
+    ) => void | Promise<void>;
   } = {
     [Actions.Connected]: args => {
       console.log(`Connection confirmed from ${this.id}:`, args);
@@ -703,10 +747,27 @@ class SignalNode extends EventEmitter {
           throw 'Failed to create webrtc transport: Peer/room not found';
         const existingPeers = room.getPeers();
 
-        // create consumer from producers of existing peers
-        existingPeers.forEach(existingPeer => {
-          // ingore the peer that requested this
-          if (existingPeer.id === peerId) return;
+        // Selective consumer creation to avoid O(n²) explosion
+        // Only create consumers for:
+        // 1. First N peers (viewport/pagination limit)
+        // 2. Active speakers (TODO: implement active speaker detection)
+        // 3. Pinned/featured peers (TODO: implement when UI supports it)
+
+        const maxInitialConsumers = parseInt(
+          process.env.MAX_INITIAL_CONSUMERS || '25'
+        );
+
+        // Filter out the requesting peer and limit to maxInitialConsumers
+        const peersToConsume = existingPeers
+          .filter(existingPeer => existingPeer.id !== peerId)
+          .slice(0, maxInitialConsumers);
+
+        console.info(
+          `Creating consumers for ${peersToConsume.length}/${existingPeers.length - 1} peers (selective subscription)`
+        );
+
+        // create consumer from producers of selected peers
+        peersToConsume.forEach(existingPeer => {
           const peerProducers = existingPeer.getProducers();
           peerProducers.forEach(producer => {
             this.createConsumer({
@@ -771,15 +832,18 @@ class SignalNode extends EventEmitter {
         });
 
         // Pipe Producer From This Router to other routers
+        // Must await before creating consumers so cross-router canConsume() works
         const routersToPipeTo = room.getRoutersToPipeTo(peer.getRouter());
-        routersToPipeTo.forEach(router => {
-          peer
-            .pipeToRouter({
-              router,
-              producerId: producer.id,
-            })
-            .catch(error => console.log(error));
-        });
+        await Promise.all(
+          routersToPipeTo.map(router =>
+            peer
+              .pipeToRouter({
+                router,
+                producerId: producer.id,
+              })
+              .catch(error => console.log(error))
+          )
+        );
 
         // Create server-side consumer for each existing peers
         const existingPeers = room.getPeers();
@@ -884,6 +948,38 @@ class SignalNode extends EventEmitter {
 
     [Actions.ResumeConsumer]: args => {
       console.log('ResumeConsumer', args);
+    },
+
+    [Actions.SetConsumerPreferredLayers]: async args => {
+      try {
+        const data = ValidationSchema.setConsumerPreferredLayers.parse(args);
+        const { roomId, peerId, consumerId, spatialLayer, temporalLayer } =
+          data;
+
+        const room = Room.getRoom(roomId);
+        const peer = room?.getPeer(peerId);
+
+        if (!room || !peer) {
+          throw 'Failed to set consumer preferred layers: Peer/room not found';
+        }
+
+        const consumer = peer.getConsumer(consumerId);
+        if (!consumer) {
+          throw 'Consumer not found';
+        }
+
+        // Set preferred layers on the consumer
+        await consumer.setPreferredLayers({
+          spatialLayer,
+          temporalLayer: temporalLayer ?? spatialLayer,
+        });
+
+        console.log(
+          `Set consumer preferred layers: ${consumerId}, spatial: ${spatialLayer}, temporal: ${temporalLayer ?? spatialLayer}`
+        );
+      } catch (error) {
+        console.error('SetConsumerPreferredLayers error:', error);
+      }
     },
 
     [Actions.RestartIce]: async (args, requestId) => {

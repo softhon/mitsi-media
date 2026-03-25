@@ -83,7 +83,7 @@ class MediaNode extends EventEmitter {
         sendPipeTansportsMap.set(routerId, transport);
       }
 
-      const recvRouter = room.getLeastLoadedRouter();
+      const recvRouter = await room.getLeastLoadedRouter();
       if (!recvRouter) throw 'No router found';
       // const recvPipeTransport = await meeting.createPipeTransport({ router: recvRouter });
 

@@ -8,9 +8,11 @@ import config from '../config';
 interface WorkerInfo {
   pid: number;
   worker: mediasoupTypes.Worker;
-  load: number;
+  load: number; // Keep for backward compatibility, but use score instead
   isHealthy: boolean;
   usage?: mediasoupTypes.WorkerResourceUsage;
+  score?: number; // Weighted load score based on CPU, memory, and peer count
+  lastUsageUpdate?: number; // Timestamp of last usage check
 }
 
 interface ServerMetrics {
@@ -100,7 +102,7 @@ export class MediasoupServer {
   private setupWorkerEventHandlers(worker: mediasoupTypes.Worker): void {
     worker.once('died', () => {
       console.error(`Worker ${worker.pid} died unexpectedly`);
-      // this.handleWorkerDeath(worker.pid);
+      this.handleWorkerDeath(worker.pid);
     });
 
     worker.on('subprocessclose', () => {
@@ -112,6 +114,40 @@ export class MediasoupServer {
       console.info(`Worker ${worker.pid} closed`);
       this.workers.delete(worker.pid);
     });
+  }
+
+  private async handleWorkerDeath(workerPid: number): Promise<void> {
+    try {
+      console.error(`Handling death of worker ${workerPid}`);
+
+      // Get worker info before removal
+      const deadWorkerInfo = this.workers.get(workerPid);
+      if (!deadWorkerInfo) {
+        console.warn(`Worker ${workerPid} not found in workers map`);
+        return;
+      }
+
+      // Mark worker as unhealthy immediately
+      deadWorkerInfo.isHealthy = false;
+
+      // Remove dead worker from map
+      this.workers.delete(workerPid);
+      console.info(`Removed dead worker ${workerPid} from workers map`);
+
+      // Spawn replacement worker
+      const currentWorkerCount = this.workers.size;
+      console.info(
+        `Spawning replacement worker (current count: ${currentWorkerCount})`
+      );
+
+      await this.createSingleWorker(currentWorkerCount);
+      console.info(
+        `Successfully spawned replacement worker (new count: ${this.workers.size})`
+      );
+    } catch (error) {
+      console.error(`Failed to handle worker death for ${workerPid}:`, error);
+      // Continue execution - don't throw, as this is an error handler
+    }
   }
 
   increaseWorkerLoad(workerPid: number): boolean {
@@ -149,7 +185,54 @@ export class MediasoupServer {
     return Array.from(this.workers.values()).filter(info => info.isHealthy);
   }
 
-  getLeastLoadedWorker(): mediasoupTypes.Worker | null {
+  private async calculateWorkerScore(
+    workerInfo: WorkerInfo
+  ): Promise<number> {
+    try {
+      // Refresh usage if stale (older than 2 seconds)
+      const now = Date.now();
+      if (
+        !workerInfo.lastUsageUpdate ||
+        now - workerInfo.lastUsageUpdate > 2000
+      ) {
+        workerInfo.usage = await workerInfo.worker.getResourceUsage();
+        workerInfo.lastUsageUpdate = now;
+      }
+
+      const usage = workerInfo.usage;
+      if (!usage) {
+        // Fallback to naive load if no usage data
+        return workerInfo.load * 100;
+      }
+
+      // Calculate normalized metrics (0-100 scale)
+      // CPU usage is already a percentage (0-100)
+      const cpuScore = usage.ru_utime + usage.ru_stime; // User + system CPU time
+
+      // Memory usage (convert to percentage, assume 4GB max per worker)
+      const maxMemoryMB = 4096;
+      const memoryMB = usage.ru_maxrss / 1024; // Convert KB to MB
+      const memoryScore = (memoryMB / maxMemoryMB) * 100;
+
+      // Peer count score (normalize by maxWorkerLoad)
+      const peerScore = (workerInfo.load / this.maxWorkerLoad) * 100;
+
+      // Weighted score: 40% CPU, 30% memory, 30% peer count
+      const weightedScore =
+        cpuScore * 0.4 + memoryScore * 0.3 + peerScore * 0.3;
+
+      return weightedScore;
+    } catch (error) {
+      console.error(
+        `Failed to calculate score for worker ${workerInfo.pid}:`,
+        error
+      );
+      // Fallback to naive load
+      return workerInfo.load * 100;
+    }
+  }
+
+  async getLeastLoadedWorker(): Promise<mediasoupTypes.Worker | null> {
     const healthyWorkers = this.getHealthyWorkers();
 
     if (healthyWorkers.length === 0) {
@@ -157,15 +240,27 @@ export class MediasoupServer {
       return null;
     }
 
-    const leastLoaded = healthyWorkers.reduce((min, current) =>
-      current.load < min.load ? current : min
+    // Calculate scores for all healthy workers
+    const workersWithScores = await Promise.all(
+      healthyWorkers.map(async workerInfo => ({
+        workerInfo,
+        score: await this.calculateWorkerScore(workerInfo),
+      }))
     );
 
-    return leastLoaded.worker;
+    // Find worker with lowest score
+    const leastLoaded = workersWithScores.reduce((min, current) =>
+      current.score < min.score ? current : min
+    );
+
+    // Update the score in workerInfo for monitoring
+    leastLoaded.workerInfo.score = leastLoaded.score;
+
+    return leastLoaded.workerInfo.worker;
   }
 
   async getWorkerWithCapacity(): Promise<mediasoupTypes.Worker | null> {
-    const worker = this.getLeastLoadedWorker();
+    const worker = await this.getLeastLoadedWorker();
     if (!worker) return null;
 
     const workerInfo = this.workers.get(worker.pid);
@@ -185,7 +280,7 @@ export class MediasoupServer {
     }
 
     try {
-      const worker = this.getLeastLoadedWorker();
+      const worker = await this.getLeastLoadedWorker();
       if (!worker) {
         throw new Error('No healthy workers available for router creation');
       }

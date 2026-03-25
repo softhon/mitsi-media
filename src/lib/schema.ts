@@ -41,4 +41,12 @@ export const ValidationSchema = {
   restartIce: roomIdPeerIdSchema.extend({
     transportId: z.string(),
   }),
+
+  setConsumerPreferredLayers: roomIdPeerIdSchema.extend({
+    consumerId: z.string(),
+    producerPeerId: z.string(),
+    producerSource: producerSource,
+    spatialLayer: z.number(),
+    temporalLayer: z.number().optional(),
+  }),
 };
